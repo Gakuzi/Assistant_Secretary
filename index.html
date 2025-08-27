@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Календарь-Ассистент</title>
+  <title>Gemini Ассистент</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗓️</text></svg>">
   <link rel="stylesheet" href="index.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
@@ -21,7 +21,7 @@
     <header class="app-header">
       <div class="header-title">
         <span class="material-symbols-outlined header-logo">calendar_month</span>
-        <h1>Ассистент</h1>
+        <h1>Gemini Ассистент</h1>
       </div>
       <div class="header-actions">
         <div id="auth-status-container">
@@ -43,9 +43,7 @@
           <h2 id="welcome-greeting">Ваш личный ассистент</h2>
           <p id="welcome-subheading" class="welcome-subheading"></p>
           <div id="suggestion-chips-container">
-            <button class="suggestion-chip">Создать встречу на завтра в 10 утра с Иваном для обсуждения проекта</button>
-            <button class="suggestion-chip">Какие у меня планы на эту пятницу?</button>
-            <button class="suggestion-chip">Напомни мне позвонить в сервис в 15:00</button>
+            <!-- Suggestion chips will be dynamically generated here -->
           </div>
         </div>
 
@@ -127,13 +125,19 @@
                   <label for="setup-gemini-api-key">Gemini API Key</label>
                   <input type="password" id="setup-gemini-api-key" placeholder="Вставьте ваш Gemini API Key">
               </div>
-              <button id="setup-save-api-key-button" class="action-button primary">Сохранить и продолжить</button>
+              <button id="setup-verify-api-key-button" class="action-button primary">Проверить и продолжить</button>
           </div>
           <div id="setup-step-2" class="setup-step">
               <span class="material-symbols-outlined setup-icon">login</span>
               <h2>Шаг 2: Вход в Google</h2>
-              <p>Отлично! Теперь войдите в свой аккаунт Google, чтобы ассистент мог управлять вашим календарем и задачами.</p>
+              <p>Ключ Gemini API успешно проверен! Теперь войдите в свой аккаунт Google, чтобы ассистент мог управлять вашим календарем, задачами и другими сервисами.</p>
               <button id="setup-auth-button" class="action-button primary">Войти через Google</button>
+          </div>
+           <div id="setup-step-error" class="setup-step">
+              <span class="material-symbols-outlined setup-icon" style="color: var(--error-color);">error</span>
+              <h2>Ошибка проверки ключа</h2>
+              <p id="setup-error-message">Не удалось проверить ваш Gemini API ключ. Пожалуйста, убедитесь, что вы скопировали его правильно, и попробуйте снова.</p>
+              <button id="setup-try-again-button" class="action-button primary">Попробовать снова</button>
           </div>
       </div>
   </div>
