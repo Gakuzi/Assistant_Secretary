@@ -108,7 +108,12 @@ async function initializeApp() {
 async function initializeGapiClient(clientId) {
     try {
         await gapiReady;
-        await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"] });
+        // Ensure the client library is loaded before trying to use it.
+        await new Promise((resolve, reject) => gapi.load('client', { callback: resolve, onerror: reject }));
+        
+        await gapi.client.init({
+            discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"]
+        });
         appState.gapiInited = true;
 
         await gisReady;
