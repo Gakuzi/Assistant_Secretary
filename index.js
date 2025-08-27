@@ -775,9 +775,10 @@ function appendMessage(
         break;
   }
   
-  const replyButton = `<button class="message-reply-button" aria-label="Ответить на сообщение">
-    <span class="material-symbols-outlined">reply</span>
-  </button>`;
+  const replyButton = document.createElement('button');
+  replyButton.className = 'message-reply-button';
+  replyButton.setAttribute('aria-label', 'Ответить на сообщение');
+  replyButton.innerHTML = `<span class="material-symbols-outlined">reply</span>`;
   
   messageBubble.innerHTML = mainContentHtml + interactiveHtml;
   messageContainer.appendChild(messageBubble);
