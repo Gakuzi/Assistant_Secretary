@@ -46,6 +46,7 @@ const dom = {
     capturePhotoButton: document.getElementById('capture-photo-button'),
     cancelCameraButton: document.getElementById('cancel-camera-button'),
     welcomeScreen: document.getElementById('welcome-screen'),
+    welcomeSubheading: document.getElementById('welcome-subheading'),
     suggestionChipsContainer: document.getElementById('suggestion-chips-container'),
     chatReplyContext: document.getElementById('chat-reply-context'),
     chatReplyContextText: document.getElementById('chat-reply-context-text'),
@@ -217,10 +218,12 @@ async function handleTokenResponse(response) {
  * @param {boolean} isSignedIn - Whether the user is signed in.
  */
 async function updateUiForAuthState(isSignedIn) {
+    const welcomeAuthContainer = document.getElementById('welcome-auth-container');
     if (isSignedIn) {
         dom.welcomeScreen.style.display = 'none';
         dom.calendarLoginPrompt.style.display = 'none';
         dom.calendarViewContainer.style.display = 'grid';
+        welcomeAuthContainer.style.display = 'none';
 
         // Fetch and display user profile
         try {
@@ -266,6 +269,18 @@ async function updateUiForAuthState(isSignedIn) {
         dom.calendarViewContainer.style.display = 'none';
         document.getElementById('settings-user-profile').style.display = 'none';
         document.getElementById('sign-out-button').style.display = 'none';
+
+        const keysExist = localStorage.getItem('googleClientId');
+        if (keysExist) {
+            dom.welcomeSubheading.textContent = "Войдите в свой аккаунт Google, чтобы начать управлять календарем.";
+            dom.suggestionChipsContainer.style.display = 'none';
+            welcomeAuthContainer.style.display = 'block'; // Show the main login button
+        } else {
+            dom.welcomeSubheading.textContent = "Начните настройку, чтобы управлять календарем.";
+            dom.suggestionChipsContainer.style.display = 'flex';
+            welcomeAuthContainer.style.display = 'none';
+        }
+
         displayAuthButtons();
     }
 }
@@ -277,10 +292,12 @@ async function updateUiForAuthState(isSignedIn) {
 function displayAuthButtons() {
     const authContainerOnboarding = document.getElementById('auth-container');
     const authContainerSettings = document.getElementById('auth-container-settings');
+    const authContainerWelcome = document.getElementById('welcome-auth-container');
 
     const createAuthButton = () => {
         const button = document.createElement('button');
         button.className = 'action-button primary';
+        button.style.margin = '16px 0';
         button.onclick = handleAuthClick;
         button.innerHTML = `<svg width="20" height="20" viewBox="0 0 20 20" style="margin-right: 8px;" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M19.6 10.2045C19.6 9.50907 19.5409 8.8318 19.4273 8.1818H10V11.8727H15.5545C15.3364 13.0182 14.7364 14.0182 13.8455 14.6591V17.1364H16.7136C18.5273 15.4636 19.6 13.0318 19.6 10.2045Z" fill="#4285F4"/><path d="M10 20C12.7 20 15.0136 19.0455 16.7136 17.1364L13.8455 14.6591C12.9227 15.2545 11.5864 15.6818 10 15.6818C7.38182 15.6818 5.15 13.9818 4.31818 11.6409H1.35909V14.2C3.05909 17.65 6.27727 20 10 20Z" fill="#34A853"/><path d="M4.31818 11.6409C4.12727 11.0864 4.01364 10.4955 4.01364 9.88636C4.01364 9.27727 4.12727 8.68636 4.31818 8.13182V5.57273H1.35909C0.5 7.15909 0 8.46364 0 9.88636C0 11.3091 0.5 12.6136 1.35909 14.2L4.31818 11.6409Z" fill="#FBBC05"/><path d="M10 4.09091C11.4318 4.09091 12.7727 4.58636 13.8 5.53182L16.7818 2.58636C15.0091 0.981818 12.6955 0 10 0C6.27727 0 3.05909 2.35 1.35909 5.57273L4.31818 8.13182C5.15 5.79091 7.38182 4.09091 10 4.09091Z" fill="#EA4335"/></svg> Войти через Google`;
         return button;
@@ -293,6 +310,10 @@ function displayAuthButtons() {
     if (authContainerSettings) {
         authContainerSettings.innerHTML = '';
         authContainerSettings.appendChild(createAuthButton());
+    }
+    if (authContainerWelcome) {
+        authContainerWelcome.innerHTML = '';
+        authContainerWelcome.appendChild(createAuthButton());
     }
 }
 
