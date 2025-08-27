@@ -1,4 +1,3 @@
-
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -91,33 +90,40 @@ async function initializeApp() {
     const geminiApiKey = localStorage.getItem('geminiApiKey');
     dom.settingsGeminiApiKey.value = geminiApiKey || '';
 
-    if (!geminiApiKey) {
-        updateUiForAuthState(false);
-        return;
-    }
-    
-    if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
-         appendMessage('error', 'Ошибка конфигурации: необходимо указать Google Client ID в файле index.js');
-         return;
-    }
-
-    try {
-        appState.ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        await initializeGapiClient();
-        updateUiForAuthState(false); // Start as signed out
-    } catch (error) {
-        console.error("Initialization failed:", error);
-        localStorage.removeItem('geminiApiKey'); // Clear bad key
-        alert(`Ошибка инициализации: ${error.message}. Проверьте ключ Gemini API.`);
+    if (geminiApiKey) {
+        await runInitializationSequence(geminiApiKey);
+    } else {
         updateUiForAuthState(false);
     }
 }
 
+async function runInitializationSequence(apiKey) {
+    if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
+        appendMessage('error', 'Ошибка конфигурации: необходимо указать Google Client ID в файле index.js');
+        return;
+    }
+
+    try {
+        appState.ai = new GoogleGenAI({ apiKey });
+        await initializeGapiClient();
+        updateUiForAuthState(false); // Start as signed out, but ready to sign in
+        return true;
+    } catch (error) {
+        console.error("Initialization failed:", error);
+        localStorage.removeItem('geminiApiKey');
+        appState.ai = null;
+        alert(`Ошибка инициализации: ${error.message}. Проверьте ключ Gemini API.`);
+        updateUiForAuthState(false);
+        return false;
+    }
+}
+
 async function initializeGapiClient() {
+    if (appState.gapiInited && appState.gisInited) return; // Don't re-initialize
     try {
         await gapiReady;
         await new Promise((resolve, reject) => gapi.load('client', { callback: resolve, onerror: reject }));
-        
+
         await gapi.client.init({
             discoveryDocs: [
                 "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
@@ -183,7 +189,7 @@ async function updateUiForAuthState(isSignedIn) {
     dom.authContainerSettings.innerHTML = '';
 
     // --- State 1: No Gemini Key ---
-    if (!geminiKey) {
+    if (!geminiKey || !appState.ai) {
         dom.welcomeSubheading.textContent = "Для начала работы введите Gemini API Key в настройках (⚙️).";
         dom.calendarLoginPrompt.querySelector('p').textContent = "Сначала настройте Gemini API Key.";
         dom.welcomeScreen.style.display = 'flex';
@@ -721,10 +727,17 @@ function setupEventListeners() {
     // Settings Modal
     dom.settingsButton.addEventListener('click', () => showModal(dom.settingsModal));
     dom.closeSettingsButton.addEventListener('click', () => closeModal(dom.settingsModal));
-    dom.saveApiKeysButton.addEventListener('click', () => {
-        localStorage.setItem('geminiApiKey', dom.settingsGeminiApiKey.value);
-        alert('Ключи сохранены. Страница будет перезагружена.');
-        window.location.reload();
+    dom.saveApiKeysButton.addEventListener('click', async () => {
+        const apiKey = dom.settingsGeminiApiKey.value.trim();
+        if (!apiKey) {
+            alert('Пожалуйста, введите Gemini API Key.');
+            return;
+        }
+        localStorage.setItem('geminiApiKey', apiKey);
+        const success = await runInitializationSequence(apiKey);
+        if (success) {
+            closeModal(dom.settingsModal);
+        }
     });
 
     // Calendar Navigation
