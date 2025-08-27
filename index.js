@@ -116,9 +116,10 @@ async function initializeGapiClient(clientId) {
         appState.gapiInited = true;
 
         await gisReady;
+        const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly";
         appState.tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: clientId,
-            scope: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+            scope: SCOPES,
             callback: handleTokenResponse,
         });
         appState.gisInited = true;
@@ -423,10 +424,16 @@ async function sendMessage(text, images = []) {
     dom.welcomeScreen.style.opacity = '0';
     setTimeout(() => { dom.welcomeScreen.style.display = 'none'; }, 300);
 
-    const userMessage = { role: 'user', parts: [{ text: textTrimmed }] };
+    const userMessageContent = [];
     if (images.length > 0) {
-      userMessage.parts.push(...images.map(img => ({ inlineData: { mimeType: img.type, data: img.data } })));
+        userMessageContent.push(...images.map(img => ({ inlineData: { mimeType: img.type, data: img.data } })));
+        const imagePrompt = textTrimmed || 'Проанализируй это изображение. Если на нем есть информация о событии (название, дата, время, место), извлеки эти данные. В противном случае просто опиши, что на нем изображено.';
+        userMessageContent.push({ text: imagePrompt });
+    } else {
+        userMessageContent.push({ text: textTrimmed });
     }
+
+    const userMessage = { role: 'user', parts: userMessageContent };
     appendMessage('user', textTrimmed);
     appState.chatHistory.push(userMessage);
     
@@ -434,20 +441,40 @@ async function sendMessage(text, images = []) {
     // Manually trigger input event to reset button states and textarea height
     dom.chatTextInput.dispatchEvent(new Event('input', { bubbles: true }));
 
+    const systemInstruction = `Вы — ассистент, интегрированный с Google Календарем. Ваша задача — помогать пользователю управлять его расписанием. Текущая дата: ${new Date().toISOString()}.
+- Всегда поддерживайте контекст разговора.
+- Если пользователь просит создать онлайн-встречу или звонок, установите 'createMeetLink' в 'true' при вызове функции.
+- При анализе изображений, если находите информацию о событии, предложите его создать.`;
 
     try {
         const result = await appState.ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: appState.chatHistory,
-            systemInstruction: `Вы — ассистент, интегрированный с Google Календарем. Текущая дата: ${new Date().toISOString()}`,
+            systemInstruction: systemInstruction,
             tools: [{ functionDeclarations: [
                 {   name: 'create_calendar_event',
-                    description: 'Создает событие в Google Календаре.',
-                    parameters: { type: Type.OBJECT, properties: { summary: { type: Type.STRING }, location: {type: Type.STRING}, description: {type: Type.STRING}, startDateTime: { type: Type.STRING }, endDateTime: { type: Type.STRING } }, required: ['summary', 'startDateTime', 'endDateTime'] }
+                    description: 'Создает событие в Google Календаре. Для онлайн-встреч используйте createMeetLink.',
+                    parameters: { 
+                        type: Type.OBJECT, 
+                        properties: { 
+                            summary: { type: Type.STRING, description: "Название или тема события." }, 
+                            location: {type: Type.STRING, description: "Место проведения."}, 
+                            description: {type: Type.STRING, description: "Подробное описание события."}, 
+                            startDateTime: { type: Type.STRING, description: "Дата и время начала в формате ISO 8601, например, 2024-08-15T09:00:00Z" }, 
+                            endDateTime: { type: Type.STRING, description: "Дата и время окончания в формате ISO 8601." },
+                            attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Список email-адресов участников." },
+                            createMeetLink: { type: Type.BOOLEAN, description: "Создать ли ссылку на Google Meet для этого события."}
+                        }, 
+                        required: ['summary', 'startDateTime', 'endDateTime'] 
+                    }
                 },
                 {   name: 'find_calendar_events',
                     description: 'Ищет события в Google Календаре.',
                     parameters: { type: Type.OBJECT, properties: { timeRangeStart: { type: Type.STRING }, timeRangeEnd: { type: Type.STRING } }, required: [] }
+                },
+                {   name: 'search_contacts',
+                    description: 'Ищет контакты в Google Контактах по имени или email.',
+                    parameters: { type: Type.OBJECT, properties: { query: { type: Type.STRING } }, required: ['query'] }
                 }
             ]}]
         });
@@ -467,12 +494,18 @@ async function handleApiResponse(response) {
 
     if (functionCall) {
         const { name, args } = functionCall;
-        appendMessage('system', `Выполняю: ${name}...`);
+        // Do not display the "Executing" message for a cleaner UI
+        // appendMessage('system', `Выполняю: ${name}...`);
         appState.chatHistory.push(response.candidates[0].content);
 
         const apiResponse = await processFunctionCall(name, args);
         
-        appState.chatHistory.push({ role: 'tool', parts: [{ functionResponse: { name, response: apiResponse } }] });
+        // If event was created, we've already shown the card. Just send a simplified success message to AI.
+        const responseToSend = (name === 'create_calendar_event' && apiResponse.success)
+            ? { success: true, eventId: apiResponse.event.id }
+            : apiResponse;
+
+        appState.chatHistory.push({ role: 'tool', parts: [{ functionResponse: { name, response: responseToSend } }] });
 
         const result2 = await appState.ai.models.generateContent({ model: 'gemini-2.5-flash', contents: appState.chatHistory });
         await handleApiResponse(result2);
@@ -480,6 +513,8 @@ async function handleApiResponse(response) {
         const text = response.text;
         appendMessage('ai', text);
         appState.chatHistory.push({ role: 'model', parts: [{ text }] });
+    } else {
+         appendMessage('error', 'Ассистент не смог обработать ваш запрос.');
     }
 }
 
@@ -495,9 +530,22 @@ async function processFunctionCall(name, args) {
                     description: args.description,
                     start: { dateTime: args.startDateTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
                     end: { dateTime: args.endDateTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+                    attendees: args.attendees ? args.attendees.map(email => ({ email })) : [],
                 };
-                const createResponse = await gapi.client.calendar.events.insert({ calendarId: 'primary', resource: event });
+                if (args.createMeetLink) {
+                    event.conferenceData = { createRequest: { requestId: `meet-${Date.now()}` } };
+                }
+                const createResponse = await gapi.client.calendar.events.insert({ 
+                    calendarId: 'primary', 
+                    resource: event,
+                    conferenceDataVersion: 1 // Required to get Meet link details back
+                });
                 result = { success: true, event: createResponse.result };
+                
+                // Display interactive card immediately
+                appendMessage('system', '', { eventType: 'eventCreated', eventData: createResponse.result });
+
+                // Update calendar UI
                 const eventDate = new Date(args.startDateTime);
                 renderCalendar(eventDate);
                 renderDailyEvents(eventDate);
@@ -514,20 +562,67 @@ async function processFunctionCall(name, args) {
                 });
                 result = findResponse.result.items;
                 break;
+            case 'search_contacts':
+                 appendMessage('system', 'Функция поиска контактов находится в разработке.');
+                 result = { info: 'Функция поиска контактов пока не реализована.' };
+                 break;
             default:
                 throw new Error(`Неизвестная функция: ${name}`);
         }
         return result;
     } catch (error) {
         console.error(`Error in function ${name}:`, error);
+        appendMessage('error', `Ошибка выполнения команды: ${error.message}`);
         return { error: error.message };
     }
 }
 
-function appendMessage(sender, content) {
+function appendMessage(sender, content, metadata = {}) {
     const messageBubble = document.createElement('div');
-    messageBubble.className = `message-bubble ${sender}`;
-    messageBubble.innerHTML = marked.parse(content);
+    
+    if (metadata.eventType === 'eventCreated' && metadata.eventData) {
+        messageBubble.className = 'message-bubble system event-card';
+        const event = metadata.eventData;
+        const startTime = new Date(event.start.dateTime || event.start.date);
+        const meetLink = event.hangoutLink;
+        
+        messageBubble.innerHTML = `
+            <div class="event-card-content">
+                <div class="event-card-header">
+                     <span class="material-symbols-outlined event-card-icon">event_available</span>
+                    <div>
+                        <h4 class="event-card-title">${event.summary || '(Без названия)'}</h4>
+                    </div>
+                </div>
+                <div class="event-card-details">
+                    <p>
+                        <span class="material-symbols-outlined">schedule</span>
+                        <span>${startTime.toLocaleString('ru-RU', { dateStyle: 'long', timeStyle: 'short' })}</span>
+                    </p>
+                    ${event.location ? `
+                    <p>
+                        <span class="material-symbols-outlined">location_on</span>
+                        <span>${event.location}</span>
+                    </p>` : ''}
+                     ${meetLink ? `
+                    <p>
+                        <span class="material-symbols-outlined">videocam</span>
+                        <span>Google Meet</span>
+                    </p>` : ''}
+                </div>
+            </div>
+            <div class="event-card-actions">
+                <a href="${event.htmlLink}" target="_blank" rel="noopener noreferrer" class="action-button">
+                    Посмотреть в Календаре
+                    <span class="material-symbols-outlined" style="font-size: 16px;">open_in_new</span>
+                </a>
+            </div>
+        `;
+    } else {
+        messageBubble.className = `message-bubble ${sender}`;
+        messageBubble.innerHTML = marked.parse(content);
+    }
+
     dom.messageList.appendChild(messageBubble);
     dom.messageList.scrollTop = dom.messageList.scrollHeight;
 }
@@ -593,7 +688,7 @@ function setupEventListeners() {
         const file = e.target.files[0];
         if (file) {
              const base64Data = await base64Encode(file);
-             sendMessage(dom.chatTextInput.value || 'Что на этом изображении?', [{ type: file.type, data: base64Data }]);
+             sendMessage(dom.chatTextInput.value, [{ type: file.type, data: base64Data }]);
         }
         e.target.value = ''; // Reset input
     });
