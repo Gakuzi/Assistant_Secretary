@@ -40,16 +40,26 @@ const capturePhotoButton = document.getElementById('capture-photo-button');
 const cancelCameraButton = document.getElementById('cancel-camera-button');
 const welcomeScreen = document.getElementById('welcome-screen');
 const suggestionChipsContainer = document.getElementById('suggestion-chips-container');
-const quickActionsBar = document.getElementById('quick-actions-bar');
+const chatReplyContext = document.getElementById('chat-reply-context');
+const chatReplyContextText = document.getElementById('chat-reply-context-text');
+const chatReplyContextClose = document.getElementById('chat-reply-context-close');
 
-// Calendar Integration Elements
+// Calendar Panel Elements
+const calendarLoginPrompt = document.getElementById('calendar-login-prompt');
+const calendarViewContainer = document.getElementById('calendar-view-container');
+const prevMonthButton = document.getElementById('prev-month-button');
+const nextMonthButton = document.getElementById('next-month-button');
+const currentMonthYearEl = document.getElementById('current-month-year');
+const calendarGridWeekdays = document.getElementById('calendar-grid-weekdays');
+const calendarGridDays = document.getElementById('calendar-grid-days');
+const dailyEventsHeader = document.getElementById('daily-events-header');
+const dailyEventsList = document.getElementById('daily-events-list');
+
+// User Profile & Auth
 const userProfile = document.getElementById('user-profile');
 const userAvatar = document.getElementById('user-avatar');
 const userName = document.getElementById('user-name');
-const calendarPanel = document.querySelector('.calendar-panel');
-const calendarLoginPrompt = document.getElementById('calendar-login-prompt');
-const upcomingEventsList = document.getElementById('upcoming-events-list');
-const refreshCalendarButton = document.getElementById('refresh-calendar-button');
+
 
 // Settings Modal Elements
 const settingsButton = document.getElementById('settings-button');
@@ -95,6 +105,11 @@ let currentStream = null;
 let imageBase64DataForNextSend = null;
 let lastFocusedElement = null; // For modal accessibility
 let lastUserPrompt = ''; // To re-issue prompts internally
+let replyContext = '';
+// Calendar View State
+let currentCalendarDate = new Date();
+let selectedDate = new Date();
+let eventsByDay = {}; // Cache events for the current month
 
 
 // --- Onboarding Flow ---
@@ -107,8 +122,7 @@ function showOnboardingStep(stepNumber) {
 }
 
 function setupOnboarding() {
-    onboardingModal.style.display = 'flex';
-    onboardingModal.setAttribute('aria-hidden', 'false');
+    openModal(onboardingModal);
     showOnboardingStep(1);
 
     nextButton1.onclick = () => showOnboardingStep(2);
@@ -219,12 +233,10 @@ function handleAuthClick() {
 
     updateSignInStatus(true, userInfo);
     await listUserCalendars();
-    await listUpcomingEvents();
     
     if (localStorage.getItem('onboardingComplete') !== 'true') {
         localStorage.setItem('onboardingComplete', 'true');
-        onboardingModal.style.display = 'none';
-        onboardingModal.setAttribute('aria-hidden', 'true');
+        closeModal(onboardingModal);
     }
     closeSettingsModal();
   };
@@ -266,9 +278,9 @@ function updateSignInStatus(isSignedIn, userInfo = null) {
         settingsUserName.innerText = userInfo.name || '';
         settingsUserEmail.innerText = userInfo.email || '';
     }
-
+    
     calendarLoginPrompt.style.display = 'none';
-    upcomingEventsList.style.display = 'block';
+    calendarViewContainer.style.display = 'flex';
     welcomeScreen.querySelector('.welcome-subheading').textContent = 'Чем я могу помочь вам сегодня?';
     
   } else {
@@ -280,9 +292,7 @@ function updateSignInStatus(isSignedIn, userInfo = null) {
     maybeEnableAuthUI();
     
     calendarLoginPrompt.style.display = 'block';
-    upcomingEventsList.style.display = 'none';
-    quickActionsBar.style.display = 'none';
-    upcomingEventsList.innerHTML = '';
+    calendarViewContainer.style.display = 'none';
     welcomeScreen.querySelector('.welcome-subheading').textContent = 'Войдите в свой аккаунт Google, чтобы начать управлять календарем.';
   }
   updateWelcomeScreenVisibility();
@@ -301,125 +311,160 @@ async function listUserCalendars() {
             backgroundColor: cal.backgroundColor
         }));
         console.log("User calendars loaded:", userCalendars);
+        
+        // After loading calendars, initialize the calendar view
+        renderMonthCalendar();
     } catch (err) {
         console.error('Error fetching calendar list', err);
         appendMessage('Не удалось загрузить список ваших календарей.', 'system', 'error');
     }
 }
 
-
-async function listUpcomingEvents() {
-  if (!gapiInited || !gapi.client.getToken()) {
-    console.log("Not signed in or GAPI not ready, can't fetch events.");
-    return;
-  }
-  try {
-    if (userCalendars.length === 0) await listUserCalendars();
-
-    const timeMin = (new Date()).toISOString();
-    
-    // Create a request for each calendar
-    const requests = userCalendars.map(calendar => gapi.client.calendar.events.list({
-        'calendarId': calendar.id,
-        'timeMin': timeMin,
-        'showDeleted': false,
-        'singleEvents': true,
-        'maxResults': 10, // Per calendar
-        'orderBy': 'startTime'
-    }));
-    
-    const responses = await Promise.all(requests);
-    
-    let allEvents = [];
-    responses.forEach((response, index) => {
-        const calendar = userCalendars[index];
-        const events = response.result.items;
-        if (events) {
-            events.forEach(event => {
-                event.calendar = {
-                    id: calendar.id,
-                    summary: calendar.summary,
-                    color: calendar.backgroundColor
-                };
-                allEvents.push(event);
-            });
-        }
-    });
-
-    allEvents.sort((a, b) => {
-        const timeA = new Date(a.start.dateTime || a.start.date).getTime();
-        const timeB = new Date(b.start.dateTime || b.start.date).getTime();
-        return timeA - timeB;
-    });
-
-    const eventsToDisplay = allEvents.slice(0, 15);
-    upcomingEventsList.innerHTML = ''; 
-
-    if (eventsToDisplay.length === 0) {
-      upcomingEventsList.innerHTML = '<li>Нет предстоящих событий.</li>';
-      return;
+async function fetchEventsForMonth(year, month) {
+    if (!gapiInited || !gapi.client.getToken() || userCalendars.length === 0) {
+        return;
     }
+    
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0, 23, 59, 59);
 
-    eventsToDisplay.forEach((event) => {
-      const start = event.start?.dateTime || event.start?.date;
-      if (!start) return;
+    try {
+        const requests = userCalendars.map(calendar => gapi.client.calendar.events.list({
+            'calendarId': calendar.id,
+            'timeMin': firstDay.toISOString(),
+            'timeMax': lastDay.toISOString(),
+            'showDeleted': false,
+            'singleEvents': true,
+        }));
+        
+        const responses = await Promise.all(requests);
+        let allEvents = [];
+        responses.forEach((response, index) => {
+            const calendar = userCalendars[index];
+            const events = response.result.items;
+            if (events) {
+                events.forEach(event => {
+                    event.calendar = { ...calendar };
+                    allEvents.push(event);
+                });
+            }
+        });
 
-      const eventElement = document.createElement('li');
-      eventElement.className = 'event-item';
-      eventElement.dataset.eventId = event.id;
-      eventElement.dataset.calendarId = event.calendar.id;
-      eventElement.setAttribute('role', 'button');
-      eventElement.setAttribute('tabindex', '0');
-      eventElement.setAttribute('aria-label', `Событие: ${event.summary} в календаре ${event.calendar.summary}. Нажмите, чтобы редактировать.`);
+        // Group events by day
+        eventsByDay = {};
+        allEvents.forEach(event => {
+            const eventDate = new Date(event.start.dateTime || event.start.date).getDate();
+            if (!eventsByDay[eventDate]) {
+                eventsByDay[eventDate] = [];
+            }
+            eventsByDay[eventDate].push(event);
+        });
 
-      const startDate = new Date(start);
-      const timeString = startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      const dateString = startDate.toLocaleDateString('ru-RU', { weekday: 'short', month: 'long', day: 'numeric' });
-      
-      const attendeesHtml = (event.attendees || [])
-        .filter(att => !att.resource)
-        .map(att => `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(att.displayName || att.email)}&background=random&size=24&rounded=true" title="${att.displayName || att.email}" alt="Аватар ${att.displayName || att.email}" class="attendee-avatar">`)
-        .join('');
-      
-      const calendarColor = event.calendar.color || '#039be5';
+    } catch (err) {
+        console.error('Error fetching month events', err);
+    }
+}
 
-      eventElement.innerHTML = `
+
+function renderEventItem(event) {
+    const start = event.start?.dateTime || event.start?.date;
+    if (!start) return '';
+
+    const startDate = new Date(start);
+    const timeString = event.start?.dateTime ? startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'Весь день';
+    
+    const calendarColor = event.calendar?.backgroundColor || '#039be5';
+
+    return `
+      <li class="event-item" data-event-id="${event.id}" data-calendar-id="${event.calendar.id}" role="button" tabindex="0" aria-label="Событие: ${event.summary}">
         <div class="event-color-indicator" style="background-color: ${calendarColor};"></div>
         <div class="event-details">
           <h3 class="event-item-title">${event.summary || '(Без названия)'}</h3>
           <p class="event-item-time">
               <span class="material-symbols-outlined">schedule</span>
-              ${dateString}, ${timeString}
+              ${timeString}
           </p>
-          ${event.location ? `
-          <p class="event-item-location">
-              <span class="material-symbols-outlined">location_on</span>
-              ${event.location}
-          </p>` : ''}
-          ${event.hangoutLink ? `
-          <p class="event-item-meet">
-              <span class="material-symbols-outlined">videocam</span>
-              <a href="${event.hangoutLink}" target="_blank" rel="noopener noreferrer" class="meet-link" aria-label="Присоединиться к видеовстрече">Присоединиться</a>
-          </p>` : ''}
-          ${attendeesHtml ? `<div class="event-item-attendees">${attendeesHtml}</div>` : ''}
         </div>
-        <div class="event-item-actions">
-          <a href="${event.htmlLink}" target="_blank" rel="noopener noreferrer" class="event-action-button open-gcal" title="Открыть в Google Календаре" aria-label="Открыть в Google Календаре">
-              <span class="material-symbols-outlined">open_in_new</span>
-          </a>
-          <button class="event-action-button delete" title="Удалить событие" aria-label="Удалить событие ${event.summary}">
-              <span class="material-symbols-outlined">delete</span>
-          </button>
-        </div>
-      `;
-      upcomingEventsList.appendChild(eventElement);
-    });
-  } catch (err) {
-    console.error('Execute error', err);
-    const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
-    appendMessage(`Ошибка при загрузке событий: ${errorMessage}`, 'system', 'error');
-  }
+      </li>
+    `;
 }
+
+function displayEventsForDate(date) {
+    selectedDate = date;
+    
+    dailyEventsHeader.textContent = `События, ${date.toLocaleDateString('ru-RU', { month: 'long', day: 'numeric' })}`;
+    dailyEventsList.innerHTML = '';
+    
+    const day = date.getDate();
+    if (eventsByDay[day]) {
+        eventsByDay[day].sort((a, b) => new Date(a.start.dateTime || a.start.date) - new Date(b.start.dateTime || b.start.date));
+        eventsByDay[day].forEach(event => {
+            dailyEventsList.innerHTML += renderEventItem(event);
+        });
+    } else {
+        dailyEventsList.innerHTML = '<li>Нет запланированных событий.</li>';
+    }
+
+    // Highlight selected day in calendar
+    document.querySelectorAll('.day-cell.selected').forEach(el => el.classList.remove('selected'));
+    const selectedCell = document.querySelector(`.day-cell[data-date="${date.toISOString().split('T')[0]}"]`);
+    if (selectedCell) {
+        selectedCell.classList.add('selected');
+    }
+}
+
+
+async function renderMonthCalendar() {
+    if (!gapiInited || !gapi.client.getToken()) return;
+
+    const year = currentCalendarDate.getFullYear();
+    const month = currentCalendarDate.getMonth();
+
+    await fetchEventsForMonth(year, month);
+    
+    currentMonthYearEl.textContent = currentCalendarDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    
+    calendarGridWeekdays.innerHTML = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+        .map(day => `<div class="weekday-header">${day}</div>`).join('');
+        
+    calendarGridDays.innerHTML = '';
+    
+    const firstDayOfMonth = new Date(year, month, 1);
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+    const daysInMonth = lastDayOfMonth.getDate();
+    
+    let dayOfWeek = firstDayOfMonth.getDay();
+    if (dayOfWeek === 0) dayOfWeek = 7; // Sunday is 0, make it 7
+    
+    // Previous month's days
+    for (let i = 1; i < dayOfWeek; i++) {
+        calendarGridDays.innerHTML += `<div class="day-cell other-month"></div>`;
+    }
+    
+    // Current month's days
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(year, month, day);
+        const dateString = date.toISOString().split('T')[0];
+        let classes = 'day-cell';
+        if (date.getTime() === today.getTime()) classes += ' today';
+        if (date.getTime() === selectedDate.getTime()) classes += ' selected';
+        
+        const hasEvent = eventsByDay[day] && eventsByDay[day].length > 0;
+
+        calendarGridDays.innerHTML += `
+            <div class="${classes}" data-date="${dateString}" role="button" tabindex="0" aria-label="${day} число">
+                ${day}
+                ${hasEvent ? '<div class="event-dot"></div>' : ''}
+            </div>
+        `;
+    }
+
+    displayEventsForDate(selectedDate);
+}
+
 
 async function createCalendarEvent(eventData) {
   if (!gapiInited || !gapi.client.getToken()) {
@@ -442,7 +487,7 @@ async function createCalendarEvent(eventData) {
     const response = await gapi.client.calendar.events.insert(requestPayload);
     console.log('Event created: ', response.result);
     appendMessage(`Событие **"${response.result.summary}"** успешно создано!`, 'ai', 'event_card', response.result);
-    await listUpcomingEvents();
+    renderMonthCalendar();
     return response.result;
   } catch (err) {
     console.error('Execute error', err);
@@ -471,7 +516,7 @@ async function updateCalendarEvent(calendarId, eventId, eventData) {
       const response = await gapi.client.calendar.events.patch(requestPayload);
       console.log('Event updated: ', response.result);
       appendMessage(`Событие **"${response.result.summary}"** успешно обновлено!`, 'ai', 'event_card', response.result);
-      await listUpcomingEvents();
+      renderMonthCalendar();
       return response.result;
     } catch (err) {
       console.error('Execute error', err);
@@ -490,7 +535,7 @@ async function deleteCalendarEvent(calendarId, eventId) {
             'sendUpdates': 'all'
         });
         appendMessage('Событие успешно удалено.', 'system');
-        await listUpcomingEvents();
+        renderMonthCalendar();
     } catch (err) {
         console.error('Delete error', err);
         const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
@@ -586,8 +631,6 @@ function scrollToBottom() { messageList.scrollTop = messageList.scrollHeight; }
 function updateWelcomeScreenVisibility() {
   const hasMessages = messageList.children.length > 0;
   welcomeScreen.style.display = hasMessages ? 'none' : 'flex';
-  const isSignedIn = gapiInited && gapi.client.getToken() !== null;
-  quickActionsBar.style.display = hasMessages && isSignedIn ? 'flex' : 'none';
 }
 
 function renderEventCard(eventData, isConfirmation = false) {
@@ -609,9 +652,9 @@ function renderEventCard(eventData, isConfirmation = false) {
     const calendarColor = eventData.color?.background || calendar.backgroundColor || '#039be5';
     
     const cardClass = isConfirmation ? 'confirmation-card' : 'event-card-in-chat';
-
+    const cardAttributes = `data-event-id="${eventData.id || ''}" data-calendar-id="${eventData.calendarId || eventData.calendar?.id ||'primary'}"`;
     return `
-      <div class="${cardClass}" data-event-id="${eventData.id || ''}" data-calendar-id="${eventData.calendarId || 'primary'}">
+      <div class="${cardClass}" ${isConfirmation ? '' : cardAttributes}>
         <div class="event-color-indicator" style="background-color: ${calendarColor};"></div>
         <div class="event-details">
             <h3 class="event-item-title">${eventData.summary || '(Без названия)'}</h3>
@@ -642,15 +685,6 @@ function renderEventCard(eventData, isConfirmation = false) {
             </p>` : ''}
             ${attendees.length > 0 ? `<div class="event-item-attendees">${attendeesHtml}</div>` : ''}
         </div>
-        ${!isConfirmation && eventData.id ? `
-        <div class="event-card-actions">
-            <button class="event-action-button edit" title="Изменить" data-event-id="${eventData.id}" data-calendar-id="${eventData.calendar?.id || eventData.calendarId || 'primary'}">
-                <span class="material-symbols-outlined">edit</span>
-            </button>
-            <button class="event-action-button delete" title="Удалить" data-event-id="${eventData.id}" data-calendar-id="${eventData.calendar?.id || eventData.calendarId || 'primary'}">
-                <span class="material-symbols-outlined">delete</span>
-            </button>
-        </div>` : ''}
       </div>
     `;
 }
@@ -661,8 +695,12 @@ function appendMessage(
   type = 'text',
   data = null
 ) {
+  const messageContainer = document.createElement('div');
+  messageContainer.className = 'message-container';
+
   const messageBubble = document.createElement('div');
   messageBubble.classList.add('message-bubble', sender);
+  messageBubble.dataset.rawText = content || '';
   if (type === 'error') messageBubble.classList.add('error-message');
 
   let mainContentHtml = content ? marked.parse(content) : '';
@@ -683,6 +721,7 @@ function appendMessage(
 
     case 'event_card':
         interactiveHtml = renderEventCard(data);
+        messageBubble.dataset.rawText = `Событие: ${data.summary}`;
         break;
 
     case 'contact_selection_request':
@@ -722,8 +761,15 @@ function appendMessage(
         break;
   }
   
+  const replyButton = `<button class="message-reply-button" aria-label="Ответить на сообщение">
+    <span class="material-symbols-outlined">reply</span>
+  </button>`;
+  
   messageBubble.innerHTML = mainContentHtml + interactiveHtml;
-  messageList.appendChild(messageBubble);
+  messageContainer.appendChild(messageBubble);
+  messageContainer.innerHTML += replyButton;
+  
+  messageList.appendChild(messageContainer);
 
   // Add event listeners for interactive elements
   if (type === 'confirmation_request') {
@@ -742,20 +788,13 @@ function appendMessage(
       });
       messageBubble.querySelector('.cancel-event-action').addEventListener('click', handleCancelEvent);
   } else if (type === 'event_card') {
-      messageBubble.querySelector('.edit')?.addEventListener('click', (e) => {
-        const card = e.target.closest('.event-card-in-chat');
+      messageBubble.querySelector('.event-card-in-chat')?.addEventListener('click', (e) => {
+        const card = e.currentTarget;
         handleEditEventStart(card.dataset.calendarId, card.dataset.eventId);
-      });
-      messageBubble.querySelector('.delete')?.addEventListener('click', (e) => {
-        const card = e.target.closest('.event-card-in-chat');
-        if (confirm('Вы уверены, что хотите удалить это событие?')) {
-            deleteCalendarEvent(card.dataset.calendarId, card.dataset.eventId);
-        }
       });
   } else if (type === 'suggestion' && data?.suggestion === 'ADD_DRIVE_FILE') {
       messageBubble.querySelector('.drive-attach-button')?.addEventListener('click', createPicker);
   }
-
 
   scrollToBottom();
   updateWelcomeScreenVisibility();
@@ -767,7 +806,8 @@ async function processAiResponse(parsedData) {
       if (parsedData.generalResponse) {
         appendMessage(parsedData.generalResponse, 'ai');
       }
-      await handleListEventsAction(parsedData.listParameters);
+      // This is now handled by the calendar view, but we can still show a summary
+      // await handleListEventsAction(parsedData.listParameters);
       break;
     
     case 'REQUEST_CONTACTS':
@@ -857,7 +897,7 @@ function handleCancelEvent() {
 }
 
 async function handleEditEventStart(calendarId, eventId) {
-    if (!gapiInited || !gapi.client.getToken()) {
+    if (!gapiInited || !gapi.client.getToken() || !calendarId || !eventId) {
         appendMessage('Пожалуйста, войдите, чтобы редактировать события.', 'system', 'error');
         return;
     }
@@ -896,52 +936,6 @@ async function handleEditEventStart(calendarId, eventId) {
     }
 }
 
-async function handleListEventsAction(params = {}) {
-  if (!gapiInited || !gapi.client.getToken()) {
-    appendMessage('Пожалуйста, войдите в Google, чтобы просмотреть события.', 'system', 'error');
-    return;
-  }
-  setLoading(true);
-  try {
-    const defaultParams = {
-      'calendarId': 'primary',
-      'showDeleted': false,
-      'singleEvents': true,
-      'maxResults': 10,
-      'orderBy': 'startTime'
-    };
-    
-    if (!params.timeMin && !params.timeMax) {
-        defaultParams['timeMin'] = (new Date()).toISOString();
-    }
-    
-    const request = { ...defaultParams, ...params };
-    console.log("Listing events with params:", request);
-
-    const response = await gapi.client.calendar.events.list(request);
-    const events = response.result.items;
-    
-    if (!events || events.length === 0) {
-        appendMessage('В указанный период событий не найдено.', 'ai');
-        return;
-    }
-
-    let responseText = "Вот ваши предстоящие события:\n\n";
-    events.forEach((event) => {
-      const start = new Date(event.start.dateTime || event.start.date);
-      responseText += `*   **${event.summary}** - ${start.toLocaleString('ru-RU')}\n`;
-    });
-    appendMessage(responseText, 'ai');
-
-  } catch (err) {
-    console.error('List events error', err);
-    const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
-    appendMessage(`Ошибка при загрузке событий: ${errorMessage}`, 'system', 'error');
-  } finally {
-    setLoading(false);
-  }
-}
-
 async function handleContactRequest(names, eventDetails, followUpQuestion) {
     setLoading(true);
     const contactsToResolve = [];
@@ -965,7 +959,6 @@ async function handleContactRequest(names, eventDetails, followUpQuestion) {
     } catch (err) {
         console.error("Error fetching contacts:", err);
         appendMessage('Не удалось получить доступ к вашим контактам. Вы можете ввести email вручную.', 'system', 'error');
-        // Fallback to manual input maybe? For now, just show error.
     } finally {
         setLoading(false);
     }
@@ -1023,6 +1016,12 @@ async function handleUserInput(text, conflicts = []) {
   
   chatTextInput.value = '';
   setLoading(true);
+  
+  const finalPrompt = replyContext ? `Контекст: "${replyContext}"\n\nЗапрос: "${userInput}"` : userInput;
+  
+  // Clear reply context after using it
+  replyContext = '';
+  chatReplyContext.style.display = 'none';
 
   if (!ai) {
     appendMessage('Ошибка: Gemini API Key не настроен. Пожалуйста, введите его в настройках.', 'system', 'error');
@@ -1058,6 +1057,7 @@ async function handleUserInput(text, conflicts = []) {
     - Предоставьте полный и готовый объект события для финального подтверждения пользователя.
 
 **Прочие правила:**
+- **Контекст:** Если запрос начинается с "Контекст: ...", используйте его для уточнения действия (например, редактирования существующего события).
 - **Видеовстречи:** Если упоминается 'звонок', 'созвон', 'онлайн', автоматически добавляйте видеовстречу: \`"conferenceData": { "createRequest": { "requestId": "..." } }\`.
 - **Время:** Если \`end.dateTime\` отсутствует, событие должно длиться 1 час.
 - **Календарь:** Анализируйте запрос и выбирайте наиболее подходящий \`calendarId\` из списка. По умолчанию 'primary'.
@@ -1068,7 +1068,7 @@ async function handleUserInput(text, conflicts = []) {
     Доступные календари: ${JSON.stringify(userCalendars.map(c => ({id: c.id, summary: c.summary})))}
     Текущий контекст (редактируемое событие): ${editModeEventId ? JSON.stringify(currentEventDraft) : 'Нет'}
     Найденные конфликты (события в то же время): ${conflicts.length > 0 ? JSON.stringify(conflicts.map(c => ({summary: c.summary, start: c.start, end: c.end}))) : 'Нет'}
-    Запрос пользователя: "${userInput}"
+    Запрос пользователя: "${finalPrompt}"
   `;
   
   const userTurn = { role: 'user', parts: [{ text: userPrompt }] };
@@ -1118,10 +1118,10 @@ function openModal(modalElement, focusElement) {
     lastFocusedElement = document.activeElement;
     modalElement.style.display = 'flex';
     modalElement.setAttribute('aria-hidden', 'false');
+    setTimeout(() => modalElement.classList.add('visible'), 10);
     if (focusElement) {
         focusElement.focus();
     }
-    modalElement.classList.add('visible');
 }
 
 function closeModal(modalElement) {
@@ -1190,6 +1190,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('gisInitalised', initializeApiClients);
 
     initializeApiClients();
+    
+    selectedDate.setHours(0, 0, 0, 0);
 
     if (localStorage.getItem('onboardingComplete') !== 'true') {
         if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
@@ -1219,7 +1221,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    refreshCalendarButton.addEventListener('click', listUpcomingEvents);
     signOutButton.addEventListener('click', handleSignOutClick);
 
     saveApiKeysButton.addEventListener('click', () => {
@@ -1297,80 +1298,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            document.querySelectorAll('.modal').forEach(modal => {
-                if (modal.classList.contains('visible')) {
-                    closeModal(modal);
-                }
-            });
+            document.querySelectorAll('.modal.visible').forEach(closeModal);
         }
     });
 
-    upcomingEventsList.addEventListener('click', (e) => {
-        const target = e.target;
-        const eventItem = target.closest('.event-item');
-        if (!eventItem) return;
-
-        const eventId = eventItem.dataset.eventId;
-        const calendarId = eventItem.dataset.calendarId;
-        if (!eventId || !calendarId) return;
-
-        const deleteButton = target.closest('.delete');
-        const gcalLink = target.closest('.open-gcal');
-        const meetLink = target.closest('.meet-link');
-        
-        if (deleteButton) {
-             if (confirm('Вы уверены, что хотите удалить это событие?')) {
-                deleteCalendarEvent(calendarId, eventId);
-            }
-            return;
-        }
-
-        if (gcalLink || meetLink) {
-            return;
-        }
-        
-        handleEditEventStart(calendarId, eventId);
+    // New Calendar Panel Listeners
+    prevMonthButton.addEventListener('click', () => {
+        currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+        renderMonthCalendar();
     });
-
-    upcomingEventsList.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            const target = e.target;
-            if (target.classList.contains('event-item')) {
-                e.preventDefault();
-                const eventId = target.dataset.eventId;
-                const calendarId = target.dataset.calendarId;
-                if (eventId && calendarId) {
-                    handleEditEventStart(calendarId, eventId);
-                }
-            }
+    nextMonthButton.addEventListener('click', () => {
+        currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+        renderMonthCalendar();
+    });
+    calendarGridDays.addEventListener('click', (e) => {
+        const target = e.target.closest('.day-cell');
+        if (target && !target.classList.contains('other-month')) {
+            displayEventsForDate(new Date(target.dataset.date + 'T00:00:00'));
         }
     });
-    
+    dailyEventsList.addEventListener('click', (e) => {
+        const eventItem = e.target.closest('.event-item');
+        if (eventItem) {
+            handleEditEventStart(eventItem.dataset.calendarId, eventItem.dataset.eventId);
+        }
+    });
+
+    // Reply listeners
+    messageList.addEventListener('click', (e) => {
+        const replyButton = e.target.closest('.message-reply-button');
+        if (replyButton) {
+            const messageBubble = replyButton.previousElementSibling;
+            replyContext = messageBubble.dataset.rawText;
+            chatReplyContextText.textContent = replyContext;
+            chatReplyContext.style.display = 'flex';
+            chatTextInput.focus();
+        }
+    });
+    chatReplyContextClose.addEventListener('click', () => {
+        replyContext = '';
+        chatReplyContext.style.display = 'none';
+    });
+
     suggestionChipsContainer.addEventListener('click', (e) => {
         const target = e.target;
         if (target.classList.contains('suggestion-chip') && target.textContent) {
             handleUserInput(target.textContent);
         }
-    });
-
-    quickActionsBar.addEventListener('click', (e) => {
-        const target = e.target;
-        const action = target.closest('.quick-action-chip')?.dataset.action;
-        if (!action) return;
-
-        let prompt = '';
-        switch(action) {
-            case 'create':
-                prompt = 'Создай новое событие';
-                break;
-            case 'today':
-                prompt = 'Покажи мое расписание на сегодня';
-                break;
-            case 'week':
-                prompt = 'Что у меня на этой неделе?';
-                break;
-        }
-        handleUserInput(prompt);
     });
 
     instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {

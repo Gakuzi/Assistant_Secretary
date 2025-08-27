@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Календарь-Ассистент</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗓️</text></svg>">
   <link rel="stylesheet" href="index.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <script type="importmap">
@@ -50,55 +51,63 @@
           </div>
         </div>
 
-        <div id="quick-actions-bar" style="display: none;">
-            <button class="quick-action-chip" data-action="create">
-                <span class="material-symbols-outlined">add</span> Создать событие
-            </button>
-            <button class="quick-action-chip" data-action="today">
-                <span class="material-symbols-outlined">today</span> Расписание на сегодня
-            </button>
-            <button class="quick-action-chip" data-action="week">
-                <span class="material-symbols-outlined">date_range</span> Планы на неделю
-            </button>
-        </div>
-
         <div id="loading-indicator" style="display: none;" aria-label="Загрузка">
           <div class="spinner"></div>
           <span>Обработка...</span>
         </div>
-
-        <div id="chat-input-bar">
-          <div class="camera-button-container">
-            <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
-              <span class="material-symbols-outlined">add_photo_alternate</span>
-            </button>
-            <div id="camera-options-menu" class="camera-options-menu" style="display: none;">
-              <button id="take-photo-option" aria-label="Сделать фото">Сделать фото</button>
-              <button id="upload-photo-option" aria-label="Загрузить фото">Загрузить фото</button>
-            </div>
+        
+        <div class="chat-input-container">
+          <div id="chat-reply-context" style="display: none;">
+             <p id="chat-reply-context-text"></p>
+             <button id="chat-reply-context-close" aria-label="Отменить ответ">
+                 <span class="material-symbols-outlined">close</span>
+             </button>
           </div>
-          <input type="file" id="image-upload-input-chat" accept="image/*" style="display: none;">
-          <textarea id="chat-text-input" placeholder="Спросите что-нибудь..." aria-label="Текстовый ввод для чата" rows="1"></textarea>
-          <button id="mic-button-chat" class="input-bar-button" aria-label="Голосовой ввод">
-            <span class="material-symbols-outlined">mic</span>
-          </button>
+          <div id="chat-input-bar">
+            <div class="camera-button-container">
+              <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
+                <span class="material-symbols-outlined">add_photo_alternate</span>
+              </button>
+              <div id="camera-options-menu" class="camera-options-menu" style="display: none;">
+                <button id="take-photo-option" aria-label="Сделать фото">Сделать фото</button>
+                <button id="upload-photo-option" aria-label="Загрузить фото">Загрузить фото</button>
+              </div>
+            </div>
+            <input type="file" id="image-upload-input-chat" accept="image/*" style="display: none;">
+            <textarea id="chat-text-input" placeholder="Спросите что-нибудь..." aria-label="Текстовый ввод для чата" rows="1"></textarea>
+            <button id="mic-button-chat" class="input-bar-button" aria-label="Голосовой ввод">
+              <span class="material-symbols-outlined">mic</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="calendar-panel">
-        <div class="calendar-panel-header">
-          <h2>События</h2>
-          <button id="refresh-calendar-button" class="icon-button" aria-label="Обновить события">
-            <span class="material-symbols-outlined">refresh</span>
-          </button>
-        </div>
-        <div id="calendar-login-prompt" class="calendar-panel-body">
-          <p>Войдите, чтобы увидеть ваши события.</p>
-        </div>
-        <ul id="upcoming-events-list" class="calendar-panel-body" style="display: none;">
-          <!-- События календаря будут здесь -->
-        </ul>
-      </div>
+      <aside class="calendar-panel">
+          <div id="calendar-login-prompt">
+            <p>Войдите, чтобы увидеть ваш календарь.</p>
+          </div>
+          <div id="calendar-view-container" style="display: none;">
+              <div id="calendar-container">
+                  <div class="calendar-header">
+                      <button id="prev-month-button" class="icon-button" aria-label="Предыдущий месяц">
+                          <span class="material-symbols-outlined">chevron_left</span>
+                      </button>
+                      <h2 id="current-month-year"></h2>
+                      <button id="next-month-button" class="icon-button" aria-label="Следующий месяц">
+                          <span class="material-symbols-outlined">chevron_right</span>
+                      </button>
+                  </div>
+                  <div class="calendar-grid" id="calendar-grid-weekdays"></div>
+                  <div class="calendar-grid" id="calendar-grid-days"></div>
+              </div>
+              <div id="daily-events-container">
+                  <h3 id="daily-events-header"></h3>
+                  <ul id="daily-events-list">
+                      <!-- События на выбранный день -->
+                  </ul>
+              </div>
+          </div>
+      </aside>
     </main>
   </div>
   
