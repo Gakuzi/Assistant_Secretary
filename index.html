@@ -123,7 +123,7 @@
         <div class="form-field">
           <label for="google-client-id-input">Google Client ID</label>
           <input type="password" id="google-client-id-input" placeholder="Вставьте ваш Google Client ID">
-           <a href="https://console.cloud.google.com/apis/credentials/oauthclient" target="_blank">Получить Client ID</a>
+           <a href="#" class="open-client-id-instructions">Получить Client ID</a>
         </div>
         <div class="modal-actions">
            <button id="onboarding-back-2" class="action-button">Назад</button>
@@ -180,10 +180,71 @@
           <div class="form-field">
             <label for="settings-google-client-id">Google Client ID</label>
             <input type="password" id="settings-google-client-id" placeholder="Ваш Google Client ID">
+             <a href="#" class="open-client-id-instructions">Получить Client ID</a>
           </div>
           <button id="save-api-keys-button" class="action-button primary" style="width: 100%; justify-content: center; margin-top: 10px;">Сохранить ключи</button>
       </div>
   </div>
+  
+  <div id="google-client-id-instructions-modal" class="modal" style="display:none;" aria-hidden="true">
+    <div class="modal-content instructions-modal-content">
+      <button id="close-instructions-button" class="icon-button close-modal-button" aria-label="Закрыть инструкцию">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+      <h2>Как получить Google Client ID</h2>
+      <p>Следуйте этим шагам, чтобы создать Client ID для доступа к Google Календарю.</p>
+      
+      <div class="instructions-body">
+        <ol>
+          <li>
+            <strong>Откройте Google Cloud Console.</strong>
+            <p>Нажмите на кнопку ниже, чтобы перейти в консоль. Если потребуется, войдите в свой аккаунт Google. Возможно, вам придется согласиться с условиями использования.</p>
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" class="action-button primary">
+              Перейти в Google Cloud Console
+              <span class="material-symbols-outlined">open_in_new</span>
+            </a>
+          </li>
+          <li>
+            <strong>Создайте или выберите проект.</strong>
+            <p>В верхней части страницы нажмите на выпадающий список проектов (рядом с логотипом Google Cloud) и выберите существующий проект или создайте новый, нажав <strong>"New Project"</strong>.</p>
+          </li>
+          <li>
+            <strong>Включите Google Calendar API.</strong>
+            <p>Перейдите в раздел <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener noreferrer">"Библиотека API"</a>, найдите <strong>"Google Calendar API"</strong> и нажмите <strong>"Enable"</strong> (Включить).</p>
+          </li>
+          <li>
+            <strong>Настройте экран согласия OAuth.</strong>
+            <p>В меню слева перейдите в <strong>"APIs & Services"</strong> &rarr; <strong>"OAuth consent screen"</strong>.
+              <br>- Выберите тип пользователя <strong>"External"</strong> (Внешний) и нажмите "Create".
+              <br>- На следующем шаге введите название приложения (например, "Календарь-Ассистент") и ваш email в полях для поддержки. Пролистайте вниз и нажмите <strong>"Save and Continue"</strong>.
+              <br>- На шагах "Scopes" и "Test users" можно ничего не добавлять, просто нажмите <strong>"Save and Continue"</strong>.
+              <br>- Вернитесь на страницу OAuth consent screen и нажмите <strong>"Publish App"</strong>, чтобы приложение было доступно для вашего аккаунта.
+            </p>
+          </li>
+          <li>
+            <strong>Создайте учетные данные.</strong>
+            <p>В меню слева перейдите в <strong>"APIs & Services"</strong> &rarr; <strong>"Credentials"</strong>.
+              <br>- Нажмите <strong>"+ CREATE CREDENTIALS"</strong> вверху и выберите <strong>"OAuth client ID"</strong>.
+            </p>
+          </li>
+          <li>
+            <strong>Настройте Client ID.</strong>
+            <p>- В поле "Application type" выберите <strong>"Web application"</strong>.
+              <br>- Дайте ему имя (например, "Calendar Assistant Web Client").
+              <br>- В разделе <strong>"Authorized JavaScript origins"</strong>, нажмите "+ ADD URI" и введите <code>http://localhost:8000</code>. Нажмите Enter. Затем добавьте еще один URI: <code>http://localhost</code>.
+              <br>- В разделе <strong>"Authorized redirect URIs"</strong>, нажмите "+ ADD URI" и введите <code>http://localhost:8000</code>. Нажмите Enter. Затем добавьте еще один URI: <code>http://localhost</code>.
+              <br>- Нажмите кнопку <strong>"CREATE"</strong>.
+            </p>
+          </li>
+           <li>
+            <strong>Скопируйте ваш Client ID.</strong>
+            <p>В появившемся окне вы увидите ваш <strong>Client ID</strong>. Скопируйте его и вставьте в поле на предыдущей странице нашего приложения.</p>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
 
   <!-- Create global callbacks that dispatch events for the module to hear -->
   <script>

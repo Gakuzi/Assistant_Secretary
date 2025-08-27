@@ -1,3 +1,4 @@
+
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -80,6 +81,11 @@ const backButton3 = document.getElementById('onboarding-back-3') as HTMLButtonEl
 const geminiApiKeyInput = document.getElementById('gemini-api-key-input') as HTMLInputElement;
 const googleClientIdInput = document.getElementById('google-client-id-input') as HTMLInputElement;
 const authContainerOnboarding = document.getElementById('auth-container') as HTMLElement;
+
+// Instructions Modal Elements
+const instructionsModal = document.getElementById('google-client-id-instructions-modal') as HTMLElement;
+const openInstructionsLinks = document.querySelectorAll('.open-client-id-instructions');
+const closeInstructionsButton = document.getElementById('close-instructions-button') as HTMLButtonElement;
 
 
 // --- State Variables ---
@@ -719,6 +725,16 @@ function closeSettingsModal() {
     settingsModal.setAttribute('aria-hidden', 'true');
 }
 
+function openInstructionsModal() {
+    instructionsModal.style.display = 'flex';
+    instructionsModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeInstructionsModal() {
+    instructionsModal.style.display = 'none';
+    instructionsModal.setAttribute('aria-hidden', 'true');
+}
+
 function handleSaveApiKeys() {
     // FIX: Gemini API key is now handled by environment variable, remove related UI logic.
     const googleId = settingsGoogleClientIdInput.value.trim();
@@ -819,10 +835,21 @@ document.addEventListener('DOMContentLoaded', () => {
   signOutButton.addEventListener('click', handleSignOutClick);
   saveApiKeysButton.addEventListener('click', handleSaveApiKeys);
 
+  // Instructions Modal
+  openInstructionsLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
+        e.preventDefault();
+        openInstructionsModal();
+    });
+  });
+  closeInstructionsButton.addEventListener('click', closeInstructionsModal);
+
+
   // Close modals on escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeSettingsModal();
+      closeInstructionsModal();
       cameraModal.style.display = 'none';
       cameraModal.setAttribute('aria-hidden', 'true');
     }
