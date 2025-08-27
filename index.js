@@ -98,11 +98,10 @@ async function initializeApp() {
 
     if (googleClientId) {
         await initializeGapiClient(googleClientId);
-        const isSignedIn = appState.gapiInited && gapi.client.getToken() !== null;
-        updateUiForAuthState(isSignedIn);
-    } else {
-        updateUiForAuthState(false);
     }
+    
+    // Always start in a logged-out state for stability. User must explicitly sign in.
+    updateUiForAuthState(false);
 }
 
 async function initializeGapiClient(clientId) {
