@@ -80,14 +80,15 @@ const closeInstructionsButton = document.getElementById('close-instructions-butt
 
 
 // --- State Variables ---
+let chatHistory = [];
 let currentEventDraft = null;
 let editModeEventId = null;
 let isWaitingForConfirmation = false;
 let isRecognizingSpeech = false;
 let isCameraOptionsOpen = false;
-let userLocation = null;
 let currentStream = null;
 let imageBase64DataForNextSend = null;
+let lastFocusedElement = null; // For modal accessibility
 
 
 // --- Onboarding Flow ---
@@ -233,6 +234,7 @@ function handleSignOutClick() {
   if (token !== null) {
     google.accounts.oauth2.revoke(token.access_token, () => {
       gapi.client.setToken(null);
+      chatHistory = []; // Clear conversation context
       updateSignInStatus(false);
       closeSettingsModal();
     });
@@ -312,17 +314,20 @@ async function listUpcomingEvents() {
       eventElement.dataset.eventId = event.id;
       eventElement.setAttribute('role', 'button');
       eventElement.setAttribute('tabindex', '0');
-      eventElement.setAttribute('aria-label', `Событие: ${event.summary}. Нажмите, чтобы редактировать в приложении.`);
+      eventElement.setAttribute('aria-label', `Событие: ${event.summary}. Нажмите, чтобы редактировать.`);
 
       const startDate = new Date(start);
       const timeString = startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       const dateString = startDate.toLocaleDateString('ru-RU', { weekday: 'short', month: 'long', day: 'numeric' });
+      
+      const attendeesHtml = (event.attendees || [])
+        .filter(att => !att.resource) // Filter out rooms/resources
+        .map(att => `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(att.email)}&background=random&size=24&rounded=true" title="${att.email}" alt="Аватар ${att.email}" class="attendee-avatar">`)
+        .join('');
 
       eventElement.innerHTML = `
         <div class="event-details">
-          <div class="event-item-header">
-              <h3 class="event-item-title">${event.summary || '(Без названия)'}</h3>
-          </div>
+          <h3 class="event-item-title">${event.summary || '(Без названия)'}</h3>
           <p class="event-item-time">
               <span class="material-symbols-outlined">schedule</span>
               ${dateString}, ${timeString}
@@ -332,15 +337,17 @@ async function listUpcomingEvents() {
               <span class="material-symbols-outlined">location_on</span>
               ${event.location}
           </p>` : ''}
+          ${event.hangoutLink ? `
+          <p class="event-item-meet">
+              <span class="material-symbols-outlined">videocam</span>
+              <a href="${event.hangoutLink}" target="_blank" rel="noopener noreferrer" class="meet-link" aria-label="Присоединиться к видеовстрече">Присоединиться</a>
+          </p>` : ''}
+          ${attendeesHtml ? `<div class="event-item-attendees">${attendeesHtml}</div>` : ''}
         </div>
         <div class="event-item-actions">
-          ${event.htmlLink ? `
           <a href="${event.htmlLink}" target="_blank" rel="noopener noreferrer" class="event-action-button open-gcal" title="Открыть в Google Календаре" aria-label="Открыть в Google Календаре">
               <span class="material-symbols-outlined">open_in_new</span>
-          </a>` : ''}
-          <button class="event-action-button edit" title="Изменить в приложении" aria-label="Изменить событие ${event.summary} в приложении">
-              <span class="material-symbols-outlined">edit</span>
-          </button>
+          </a>
           <button class="event-action-button delete" title="Удалить событие" aria-label="Удалить событие ${event.summary}">
               <span class="material-symbols-outlined">delete</span>
           </button>
@@ -350,27 +357,40 @@ async function listUpcomingEvents() {
     });
   } catch (err) {
     console.error('Execute error', err);
-    appendMessage(`Ошибка при загрузке событий: ${err.message}`, 'system', 'error');
+    const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
+    appendMessage(`Ошибка при загрузке событий: ${errorMessage}`, 'system', 'error');
   }
 }
 
 async function createCalendarEvent(eventData) {
   if (!gapiInited || !gapi.client.getToken()) {
     appendMessage('Пожалуйста, войдите в Google, чтобы создать событие.', 'system', 'error');
-    return;
+    return null;
   }
   try {
-    const response = await gapi.client.calendar.events.insert({
+    const requestPayload = {
       'calendarId': 'primary',
-      'resource': eventData
-    });
+      'resource': eventData,
+      'sendUpdates': 'all'
+    };
+    // This parameter is required to create a new Google Meet conference
+    if (eventData.conferenceData && eventData.conferenceData.createRequest) {
+        requestPayload.conferenceDataVersion = 1;
+    }
+
+    const response = await gapi.client.calendar.events.insert(requestPayload);
     console.log('Event created: ', response.result);
-    appendMessage(`Событие **"${response.result.summary}"** успешно создано!`, 'system');
+    let successMessage = `Событие **"${response.result.summary}"** успешно создано!`;
+    if (response.result.hangoutLink) {
+        successMessage += `\n[Присоединиться к видеовстрече](${response.result.hangoutLink})`;
+    }
+    appendMessage(successMessage, 'system');
     await listUpcomingEvents(); // Refresh the list
     return response.result;
   } catch (err) {
     console.error('Execute error', err);
-    appendMessage(`Ошибка при создании события: ${err.message}`, 'system', 'error');
+    const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
+    appendMessage(`Ошибка при создании события: ${errorMessage}`, 'system', 'error');
     return null;
   }
 }
@@ -378,21 +398,29 @@ async function createCalendarEvent(eventData) {
 async function updateCalendarEvent(eventId, eventData) {
     if (!gapiInited || !gapi.client.getToken()) {
       appendMessage('Пожалуйста, войдите в Google, чтобы обновить событие.', 'system', 'error');
-      return;
+      return null;
     }
     try {
-      const response = await gapi.client.calendar.events.patch({
+      const requestPayload = {
         'calendarId': 'primary',
         'eventId': eventId,
-        'resource': eventData
-      });
+        'resource': eventData,
+        'sendUpdates': 'all'
+      };
+       // Also needed for adding a conference to an existing event
+      if (eventData.conferenceData && eventData.conferenceData.createRequest) {
+          requestPayload.conferenceDataVersion = 1;
+      }
+
+      const response = await gapi.client.calendar.events.patch(requestPayload);
       console.log('Event updated: ', response.result);
       appendMessage(`Событие **"${response.result.summary}"** успешно обновлено!`, 'system');
       await listUpcomingEvents();
       return response.result;
     } catch (err) {
       console.error('Execute error', err);
-      appendMessage(`Ошибка при обновлении события: ${err.message}`, 'system', 'error');
+      const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
+      appendMessage(`Ошибка при обновлении события: ${errorMessage}`, 'system', 'error');
       return null;
     }
   }
@@ -402,13 +430,15 @@ async function deleteCalendarEvent(eventId) {
     try {
         await gapi.client.calendar.events.delete({
             'calendarId': 'primary',
-            'eventId': eventId
+            'eventId': eventId,
+            'sendUpdates': 'all'
         });
         appendMessage('Событие успешно удалено.', 'system');
         await listUpcomingEvents();
     } catch (err) {
         console.error('Delete error', err);
-        appendMessage(`Ошибка при удалении события: ${err.message}`, 'system', 'error');
+        const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
+        appendMessage(`Ошибка при удалении события: ${errorMessage}`, 'system', 'error');
     }
 }
 
@@ -476,7 +506,14 @@ function appendMessage(
     if (eventData.start?.dateTime) eventDetailsHtml += `<li><strong>Начало:</strong> ${new Date(eventData.start.dateTime).toLocaleString('ru-RU')}</li>`;
     if (eventData.end?.dateTime) eventDetailsHtml += `<li><strong>Окончание:</strong> ${new Date(eventData.end.dateTime).toLocaleString('ru-RU')}</li>`;
     if (eventData.location) eventDetailsHtml += `<li><strong>Место:</strong> ${eventData.location}</li>`;
-    if (eventData.description) eventDetailsHtml += `<li><strong>Описание:</strong> ${eventData.description}</li>`;
+    if (eventData.description) eventDetailsHtml += `<li><strong>Описание:</strong> ${eventData.description.replace(/\n/g, '<br>')}</li>`;
+    if (eventData.attendees && eventData.attendees.length > 0) {
+        const attendeeEmails = eventData.attendees.map(att => att.email).join(', ');
+        eventDetailsHtml += `<li><strong>Участники:</strong> ${attendeeEmails}</li>`;
+    }
+    if (eventData.conferenceData) {
+        eventDetailsHtml += `<li><strong>Видеовстреча:</strong> Да (будет создана)</li>`;
+    }
     eventDetailsHtml += '</ul>';
 
     eventDetailsHtml += `<div class="confirmation-buttons">
@@ -513,7 +550,8 @@ async function processAiResponse(parsedData) {
       if (parsedData.followUpQuestion) {
         appendMessage(parsedData.followUpQuestion, 'ai');
       } else {
-        appendMessage('Вот детали события. Все верно?', 'ai', 'confirmation_request', currentEventDraft);
+        const confirmationMessage = parsedData.generalResponse || 'Вот детали события. Все верно?';
+        appendMessage(confirmationMessage, 'ai', 'confirmation_request', currentEventDraft);
       }
       break;
 
@@ -523,8 +561,11 @@ async function processAiResponse(parsedData) {
       } else {
         appendMessage('Не удалось получить осмысленный ответ. Попробуйте переформулировать.', 'ai', 'error');
       }
-      currentEventDraft = null;
-      editModeEventId = null;
+      // Reset context only for general queries that are not related to calendar
+      if (!parsedData.isCalendarRelated) {
+          currentEventDraft = null;
+          editModeEventId = null;
+      }
       break;
 
     default:
@@ -550,7 +591,7 @@ async function handleConfirmEvent() {
   currentEventDraft = null;
   editModeEventId = null;
   isWaitingForConfirmation = false;
-  appendMessage('Чем еще могу помочь?', 'ai');
+  // appendMessage('Чем еще могу помочь?', 'ai'); // This can feel repetitive, let the success message be the end of the turn.
 }
 
 function handleCancelEvent() {
@@ -575,20 +616,25 @@ async function handleEditEventStart(eventId) {
         });
         const event = response.result;
         
+        // Ensure all relevant fields are captured for editing context
         currentEventDraft = {
             summary: event.summary,
             start: event.start,
             end: event.end,
             location: event.location,
-            description: event.description
+            description: event.description,
+            attendees: event.attendees,
+            conferenceData: event.conferenceData,
+            hangoutLink: event.hangoutLink
         };
         editModeEventId = eventId;
         isWaitingForConfirmation = false;
 
-        appendMessage(`Редактируем событие: **"${event.summary}"**. Что вы хотите изменить?`, 'ai');
+        appendMessage(`Редактируем событие: **"${event.summary}"**. Что вы хотите изменить? Например, "перенеси на час позже", "добавь Анну (anna@example.com)" или "сделай онлайн".`, 'ai');
     } catch (err) {
         console.error('Error fetching event for edit:', err);
-        appendMessage(`Не удалось загрузить событие для редактирования: ${err.message}`, 'system', 'error');
+        const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
+        appendMessage(`Не удалось загрузить событие для редактирования: ${errorMessage}`, 'system', 'error');
         currentEventDraft = null;
         editModeEventId = null;
     } finally {
@@ -635,7 +681,8 @@ async function handleListEventsAction(params = {}) {
 
   } catch (err) {
     console.error('List events error', err);
-    appendMessage(`Ошибка при загрузке событий: ${err.message}`, 'system', 'error');
+    const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
+    appendMessage(`Ошибка при загрузке событий: ${errorMessage}`, 'system', 'error');
   } finally {
     setLoading(false);
   }
@@ -655,45 +702,60 @@ async function handleUserInput(text) {
     return;
   }
 
-  if (isWaitingForConfirmation) {
-      appendMessage('Понял, вношу изменения. Что еще?', 'ai');
-      isWaitingForConfirmation = false; 
-  }
-
   const currentDate = new Date().toISOString();
   
-  const systemInstruction = `Вы — ИИ-ассистент для управления Google Календарем. Ваша задача — помочь пользователю создавать, редактировать, просматривать и удалять события.
+  const systemInstruction = `Вы — ИИ-ассистент для управления Google Календарем. Ваша задача — помочь пользователю создавать, редактировать, просматривать и удалять события, сохраняя контекст диалога.
+
 - Текущая дата и время: ${currentDate}.
 - Всегда отвечайте в формате JSON.
-- Для создания или редактирования события, соберите всю необходимую информацию: название (summary), дата и время начала (start.dateTime), дата и время окончания (end.dateTime), место (location) и описание (description).
-- Если информация неполная, задавайте уточняющие вопросы в поле 'followUpQuestion'.
-- Если пользователь хочет просмотреть события, используйте action 'LIST_EVENTS' и укажите параметры 'timeMin' и 'timeMax' в формате ISO 8601.
-- Если пользователь просто общается, используйте action 'GENERAL_QUERY' и дайте ответ в 'generalResponse'.
-- Если пользователь подтверждает создание/редактирование, а все данные уже есть, не задавайте 'followUpQuestion'.
-- Для ответа всегда используйте один из следующих actions: 'CREATE_EVENT', 'EDIT_EVENT', 'LIST_EVENTS', 'GENERAL_QUERY'.
-- Если пользователь хочет изменить существующее событие, сначала соберите информацию об изменениях, а затем представьте полный обновленный объект события.
+- Внимательно анализируйте историю чата и текущий контекст (поле 'Текущий контекст') для понимания намерений пользователя.
 
-Пример JSON ответа:
+**Логика Создания/Редактирования Событий:**
+1.  **Сбор Информации:** Соберите: название (summary), начало (start.dateTime), окончание (end.dateTime), место (location), описание (description).
+2.  **Видеовстречи (Google Meet):**
+    - Если в запросе пользователя или контексте есть намек на онлайн-встречу (ключевые слова: 'звонок', 'созвон', 'митинг', 'встреча', 'обсудить', 'онлайн', 'видео'), **автоматически добавьте видеовстречу**.
+    - Если событие уже существует и у него нет видеовстречи (\`hangoutLink\` is null), а пользователь просит "сделать онлайн", добавьте ее.
+    - Для добавления используйте в 'eventDetails' следующий объект: \`"conferenceData": { "createRequest": { "requestId": "meet-request-${new Date().getTime()}" } }\`.
+3.  **Участники (Attendees):**
+    - Если пользователь упоминает других людей (например, 'с Иваном', 'для команды') или указывает email, добавьте их в 'eventDetails' как массив: \`"attendees": [{ "email": "user@example.com" }]\`.
+    - Если указано только имя, но нет email, вежливо попросите email в 'followUpQuestion'.
+4.  **Документы (Attachments):**
+    - Если пользователь упоминает документы, файлы, презентации, предложите в 'followUpQuestion' предоставить ссылку, чтобы вы могли добавить ее в описание события.
+5.  **Уточняющие Вопросы:** Если ключевая информация неполная (например, нет времени или email'ов участников), задавайте уточняющие вопросы в поле 'followUpQuestion'.
+6.  **Подтверждение:** Когда вся информация собрана, НЕ задавайте 'followUpQuestion' и предоставьте полный объект события для подтверждения пользователем. Используйте поле \`generalResponse\` для сопроводительного текста (например, "Создаю встречу с видеозвонком. Все верно?").
+
+**Другие Действия:**
+- **Просмотр Событий (\`LIST_EVENTS\`):** Используйте для запросов 'покажи', 'что у меня', 'какие планы'. Укажите 'timeMin' и 'timeMax' (ISO 8601).
+- **Общий Разговор (\`GENERAL_QUERY\`):** Используйте для вопросов не по теме календаря (например, "какая погода?"). Ответ давайте в 'generalResponse'. Добавьте флаг \`"isCalendarRelated": false\`, чтобы интерфейс мог сбросить контекст календаря.
+
+**Actions:** Всегда используйте один из: 'CREATE_EVENT', 'EDIT_EVENT', 'LIST_EVENTS', 'GENERAL_QUERY'.
+
+Пример JSON для создания встречи с видео:
 {
   "action": "CREATE_EVENT",
   "eventDetails": {
-    "summary": "Командный митинг",
-    "start": { "dateTime": "2024-09-25T10:00:00+03:00", "timeZone": "Europe/Moscow" },
-    "end": { "dateTime": "2024-09-25T11:00:00+03:00", "timeZone": "Europe/Moscow" }
+    "summary": "Синхронизация по проекту",
+    "start": { "dateTime": "2024-10-28T14:00:00+03:00", "timeZone": "Europe/Moscow" },
+    "end": { "dateTime": "2024-10-28T15:00:00+03:00", "timeZone": "Europe/Moscow" },
+    "attendees": [{ "email": "jane.doe@example.com" }],
+    "conferenceData": { "createRequest": { "requestId": "meet-1721834400000" } }
   },
-  "followUpQuestion": "Где будет проходить встреча?",
-  "generalResponse": null
+  "followUpQuestion": null,
+  "generalResponse": "Создаю встречу с видеозвонком и приглашаю jane.doe@example.com. Все верно?"
 }`;
 
   const userPrompt = `
     Текущий контекст (редактируемое событие, если есть): ${editModeEventId ? JSON.stringify(currentEventDraft) : 'Нет'}
     Запрос пользователя: "${userInput}"
   `;
+  
+  const userTurn = { role: 'user', parts: [{ text: userPrompt }] };
+  const currentConversation = [...chatHistory, userTurn];
 
   try {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: userPrompt,
+        contents: currentConversation, // Pass the whole conversation for context
         config: {
             systemInstruction: systemInstruction,
             responseMimeType: "application/json",
@@ -704,16 +766,22 @@ async function handleUserInput(text) {
     const parsedData = JSON.parse(jsonString);
     console.log("AI Response:", parsedData);
 
+    // Add user and AI responses to history for next turn
+    chatHistory.push(userTurn);
+    chatHistory.push({ role: 'model', parts: [{ text: jsonString }] });
+
     await processAiResponse(parsedData);
 
   } catch (error) {
     console.error("Ошибка Gemini API:", error);
-    let errorMessage = "К сожалению, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.";
+    let errorMessage = "К сожалению, произошла ошибка при обработке вашего запроса. ";
     if (error.message) {
       if (error.message.includes('Unexpected token')) {
-        errorMessage = "Получен некорректный ответ от ассистента. Пожалуйста, попробуйте переформулировать ваш запрос.";
+        errorMessage += "Ассистент дал некорректный ответ. Попробуйте переформулировать запрос.";
+      } else if (error.toString().includes('API key not valid')) {
+        errorMessage += "Ваш Gemini API Key недействителен. Проверьте его в настройках.";
       } else {
-        errorMessage += `\n\n*Детали: ${error.message}*`;
+        errorMessage += `Детали: ${error.message}`;
       }
     }
     appendMessage(errorMessage, 'ai', 'error');
@@ -725,23 +793,41 @@ async function handleUserInput(text) {
 }
 
 // --- Modals ---
+function openModal(modalElement, focusElement) {
+    lastFocusedElement = document.activeElement;
+    modalElement.style.display = 'flex';
+    modalElement.setAttribute('aria-hidden', 'false');
+    if (focusElement) {
+        focusElement.focus();
+    }
+    modalElement.classList.add('visible');
+}
+
+function closeModal(modalElement) {
+    modalElement.classList.remove('visible');
+    // Allow animation to finish before hiding
+    setTimeout(() => {
+        modalElement.style.display = 'none';
+        modalElement.setAttribute('aria-hidden', 'true');
+        if (lastFocusedElement) {
+            lastFocusedElement.focus();
+            lastFocusedElement = null;
+        }
+    }, 300);
+}
+
 function openSettingsModal() {
     settingsGoogleClientIdInput.value = localStorage.getItem('GOOGLE_CLIENT_ID') || '';
     settingsGeminiApiKeyInput.value = localStorage.getItem('GEMINI_API_KEY') || '';
-    settingsModal.style.display = 'flex';
-    settingsModal.setAttribute('aria-hidden', 'false');
+    openModal(settingsModal, settingsGeminiApiKeyInput);
 }
 
 function closeSettingsModal() {
-    settingsModal.style.display = 'none';
-    settingsModal.setAttribute('aria-hidden', 'true');
+    closeModal(settingsModal);
 }
 
 function openInstructionsModal(event) {
     event.preventDefault();
-    instructionsModal.style.display = 'flex';
-    instructionsModal.setAttribute('aria-hidden', 'false');
-
     const origin = window.location.origin;
     const jsOriginEl = document.getElementById('instructions-js-origin');
     const redirectUriEl = document.getElementById('instructions-redirect-uri');
@@ -749,55 +835,23 @@ function openInstructionsModal(event) {
     if (jsOriginEl) jsOriginEl.textContent = origin;
     if (redirectUriEl) redirectUriEl.textContent = origin;
     
-    // This logic attaches the copy listeners every time, which is fine.
-    instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
-        button.addEventListener('click', async (e) => {
-            const currentButton = e.currentTarget;
-            const targetId = currentButton.dataset.target;
-            if (!targetId) return;
-
-            const targetElement = document.getElementById(targetId);
-            if (!targetElement?.textContent) return;
-
-            try {
-                await navigator.clipboard.writeText(targetElement.textContent);
-                
-                const icon = currentButton.querySelector('.material-symbols-outlined');
-                if (icon) {
-                    const originalIcon = icon.textContent;
-                    currentButton.classList.add('copied');
-                    icon.textContent = 'check';
-
-                    setTimeout(() => {
-                        currentButton.classList.remove('copied');
-                        icon.textContent = originalIcon;
-                    }, 2000);
-                }
-            } catch (err) {
-                console.error('Failed to copy text: ', err);
-                alert('Не удалось скопировать URI.');
-            }
-        });
-    });
+    openModal(instructionsModal, closeInstructionsButton);
 }
 
 function closeInstructionsModal() {
-    instructionsModal.style.display = 'none';
-    instructionsModal.setAttribute('aria-hidden', 'true');
+    closeModal(instructionsModal);
 }
 
 function openCameraModal() {
-    cameraModal.style.display = 'flex';
-    cameraModal.setAttribute('aria-hidden', 'false');
     navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => {
             currentStream = stream;
             cameraStreamElement.srcObject = stream;
+            openModal(cameraModal, capturePhotoButton);
         })
         .catch(err => {
             console.error("Error accessing camera: ", err);
             appendMessage('Не удалось получить доступ к камере. Проверьте разрешения в браузере.', 'system', 'error');
-            closeCameraModal();
         });
 }
 
@@ -805,8 +859,7 @@ function closeCameraModal() {
     if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
     }
-    cameraModal.style.display = 'none';
-    cameraModal.setAttribute('aria-hidden', 'true');
+    closeModal(cameraModal);
     currentStream = null;
 }
 
@@ -824,7 +877,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    settingsButton.addEventListener('click', openSettingsModal);
+    settingsButton.addEventListener('click', (e) => {
+        lastFocusedElement = e.currentTarget;
+        openSettingsModal();
+    });
     closeSettingsButton.addEventListener('click', closeSettingsModal);
 
     chatTextInput.addEventListener('keydown', (e) => {
@@ -901,42 +957,63 @@ document.addEventListener('DOMContentLoaded', () => {
                 imageBase64DataForNextSend = base64String;
                 appendMessage('Изображение загружено. Теперь опишите, что вы хотите сделать.', 'system');
             };
-            reader.readAsDataURL(file);
+            reader.readDataURL(file);
         }
     });
     
-    openInstructionsLinks.forEach(link => link.addEventListener('click', openInstructionsModal));
+    openInstructionsLinks.forEach(link => link.addEventListener('click', (e) => {
+        lastFocusedElement = e.currentTarget;
+        openInstructionsModal(e);
+    }));
     closeInstructionsButton.addEventListener('click', closeInstructionsModal);
+    
+    // --- Modal Closing UX Handlers ---
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) { // Click on backdrop
+                closeModal(modal);
+            }
+        });
+    });
 
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal').forEach(modal => {
+                if (modal.classList.contains('visible')) {
+                    closeModal(modal);
+                }
+            });
+        }
+    });
+
+    // --- Dynamic Content Listeners (Event Delegation) ---
     upcomingEventsList.addEventListener('click', (e) => {
         const target = e.target;
-    
-        // Check for specific button clicks first
+        const eventItem = target.closest('.event-item');
+        if (!eventItem) return;
+
+        const eventId = eventItem.dataset.eventId;
+        if (!eventId) return;
+
+        // Check for clicks on specific action elements that should not trigger editing.
         const deleteButton = target.closest('.delete');
+        const gcalLink = target.closest('.open-gcal');
+        const meetLink = target.closest('.meet-link');
+        
+        // Let clicks on links and buttons pass through without triggering edit
         if (deleteButton) {
-            const eventItem = target.closest('.event-item');
-            if (eventItem) {
-                const eventId = eventItem.dataset.eventId;
-                if (eventId && confirm('Вы уверены, что хотите удалить это событие?')) {
-                    deleteCalendarEvent(eventId);
-                }
+             if (confirm('Вы уверены, что хотите удалить это событие?')) {
+                deleteCalendarEvent(eventId);
             }
-            return; // Stop further processing
+            return;
         }
-    
-        // Check for GCal link click
-        if (target.closest('.open-gcal')) {
-            return; // Let the link do its job
+
+        if (gcalLink || meetLink) {
+            return;
         }
         
-        // For any other click inside the item (including the edit button or the item itself), trigger edit.
-        const eventItem = target.closest('.event-item');
-        if (eventItem) {
-            const eventId = eventItem.dataset.eventId;
-            if (eventId) {
-                handleEditEventStart(eventId);
-            }
-        }
+        // If the click was on the card but not on an excluded element, trigger the edit flow.
+        handleEditEventStart(eventId);
     });
 
     upcomingEventsList.addEventListener('keydown', (e) => {
@@ -977,5 +1054,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
         }
         handleUserInput(prompt);
+    });
+
+    // Setup copy-to-clipboard buttons in instructions
+    instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
+        button.addEventListener('click', async (e) => {
+            const currentButton = e.currentTarget;
+            const targetId = currentButton.dataset.target;
+            if (!targetId) return;
+
+            const targetElement = document.getElementById(targetId);
+            if (!targetElement?.textContent) return;
+
+            try {
+                await navigator.clipboard.writeText(targetElement.textContent);
+                
+                const icon = currentButton.querySelector('.material-symbols-outlined');
+                if (icon) {
+                    const originalIcon = icon.textContent;
+                    currentButton.classList.add('copied');
+                    icon.textContent = 'check';
+
+                    setTimeout(() => {
+                        currentButton.classList.remove('copied');
+                        icon.textContent = originalIcon;
+                    }, 2000);
+                }
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                alert('Не удалось скопировать URI.');
+            }
+        });
     });
 });
