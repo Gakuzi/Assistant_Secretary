@@ -1,106 +1,97 @@
 
-
 /**
  * @license
  * Copyright 2025 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI, GenerateContentResponse, Part } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { marked } from 'marked';
 
-// FIX: Add declarations for gapi and google to resolve TypeScript errors
-// as their types are loaded from external scripts.
-declare const gapi: any;
-declare const google: any;
-
 // --- API Config ---
-// FIX: Per @google/genai guidelines, the API key must be read from process.env.API_KEY
-// and the AI client should be initialized once.
-// We assume process.env.API_KEY is set in the build environment.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Google Client ID for Calendar API is managed via UI and localStorage.
-let GOOGLE_CLIENT_ID: string | null = null;
+let GOOGLE_CLIENT_ID = null;
 
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
 const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
 
-let tokenClient: any;
+let tokenClient;
 let gapiInited = false;
 let gisInited = false;
 
 // --- DOM Elements ---
-const messageList = document.getElementById('message-list') as HTMLElement;
-const chatTextInput = document.getElementById('chat-text-input') as HTMLTextAreaElement;
-const micButtonChat = document.getElementById('mic-button-chat') as HTMLButtonElement;
-const cameraButtonChat = document.getElementById('camera-button-chat') as HTMLButtonElement;
-const cameraOptionsMenu = document.getElementById('camera-options-menu') as HTMLDivElement;
-const takePhotoOption = document.getElementById('take-photo-option') as HTMLButtonElement;
-const uploadPhotoOption = document.getElementById('upload-photo-option') as HTMLButtonElement;
-const imageUploadInputChat = document.getElementById('image-upload-input-chat') as HTMLInputElement;
-const loadingIndicator = document.getElementById('loading-indicator') as HTMLElement;
-const cameraModal = document.getElementById('camera-modal') as HTMLElement;
-const cameraStreamElement = document.getElementById('camera-stream') as HTMLVideoElement;
-const capturePhotoButton = document.getElementById('capture-photo-button') as HTMLButtonElement;
-const cancelCameraButton = document.getElementById('cancel-camera-button') as HTMLButtonElement;
-const welcomeScreen = document.getElementById('welcome-screen') as HTMLElement;
-const suggestionChipsContainer = document.getElementById('suggestion-chips-container') as HTMLElement;
-const quickActionsBar = document.getElementById('quick-actions-bar') as HTMLElement;
+const messageList = document.getElementById('message-list');
+const chatTextInput = document.getElementById('chat-text-input');
+const micButtonChat = document.getElementById('mic-button-chat');
+const cameraButtonChat = document.getElementById('camera-button-chat');
+const cameraOptionsMenu = document.getElementById('camera-options-menu');
+const takePhotoOption = document.getElementById('take-photo-option');
+const uploadPhotoOption = document.getElementById('upload-photo-option');
+const imageUploadInputChat = document.getElementById('image-upload-input-chat');
+const loadingIndicator = document.getElementById('loading-indicator');
+const cameraModal = document.getElementById('camera-modal');
+const cameraStreamElement = document.getElementById('camera-stream');
+const capturePhotoButton = document.getElementById('capture-photo-button');
+const cancelCameraButton = document.getElementById('cancel-camera-button');
+const welcomeScreen = document.getElementById('welcome-screen');
+const suggestionChipsContainer = document.getElementById('suggestion-chips-container');
+const quickActionsBar = document.getElementById('quick-actions-bar');
 
 // Calendar Integration Elements
-const userProfile = document.getElementById('user-profile') as HTMLElement;
-const userAvatar = document.getElementById('user-avatar') as HTMLImageElement;
-const userName = document.getElementById('user-name') as HTMLElement;
-const calendarPanel = document.querySelector('.calendar-panel') as HTMLElement;
-const calendarLoginPrompt = document.getElementById('calendar-login-prompt') as HTMLElement;
-const upcomingEventsList = document.getElementById('upcoming-events-list') as HTMLElement;
-const refreshCalendarButton = document.getElementById('refresh-calendar-button') as HTMLButtonElement;
+const userProfile = document.getElementById('user-profile');
+const userAvatar = document.getElementById('user-avatar');
+const userName = document.getElementById('user-name');
+const calendarPanel = document.querySelector('.calendar-panel');
+const calendarLoginPrompt = document.getElementById('calendar-login-prompt');
+const upcomingEventsList = document.getElementById('upcoming-events-list');
+const refreshCalendarButton = document.getElementById('refresh-calendar-button');
 
 // Settings Modal Elements
-const settingsButton = document.getElementById('settings-button') as HTMLButtonElement;
-const settingsModal = document.getElementById('settings-modal') as HTMLElement;
-const closeSettingsButton = document.getElementById('close-settings-button') as HTMLButtonElement;
-const settingsUserProfile = document.getElementById('settings-user-profile') as HTMLElement;
-const settingsUserAvatar = document.getElementById('settings-user-avatar') as HTMLImageElement;
-const settingsUserName = document.getElementById('settings-user-name') as HTMLElement;
-const settingsUserEmail = document.getElementById('settings-user-email') as HTMLElement;
-const signOutButton = document.getElementById('sign-out-button') as HTMLButtonElement;
-const authContainerSettings = document.getElementById('auth-container-settings') as HTMLElement;
-const settingsGoogleClientIdInput = document.getElementById('settings-google-client-id') as HTMLInputElement;
-const saveApiKeysButton = document.getElementById('save-api-keys-button') as HTMLButtonElement;
+const settingsButton = document.getElementById('settings-button');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsButton = document.getElementById('close-settings-button');
+const settingsUserProfile = document.getElementById('settings-user-profile');
+const settingsUserAvatar = document.getElementById('settings-user-avatar');
+const settingsUserName = document.getElementById('settings-user-name');
+const settingsUserEmail = document.getElementById('settings-user-email');
+const signOutButton = document.getElementById('sign-out-button');
+const authContainerSettings = document.getElementById('auth-container-settings');
+const settingsGoogleClientIdInput = document.getElementById('settings-google-client-id');
+const saveApiKeysButton = document.getElementById('save-api-keys-button');
 
 
 // Onboarding Modal Elements
-const onboardingModal = document.getElementById('onboarding-modal') as HTMLElement;
+const onboardingModal = document.getElementById('onboarding-modal');
 const onboardingSteps = document.querySelectorAll('.onboarding-step');
-const nextButton1 = document.getElementById('onboarding-next-1') as HTMLButtonElement;
-const nextButton2 = document.getElementById('onboarding-next-2') as HTMLButtonElement;
-const backButton2 = document.getElementById('onboarding-back-2') as HTMLButtonElement;
-const backButton3 = document.getElementById('onboarding-back-3') as HTMLButtonElement;
-const googleClientIdInput = document.getElementById('google-client-id-input') as HTMLInputElement;
-const authContainerOnboarding = document.getElementById('auth-container') as HTMLElement;
+const nextButton1 = document.getElementById('onboarding-next-1');
+const nextButton2 = document.getElementById('onboarding-next-2');
+const backButton2 = document.getElementById('onboarding-back-2');
+const backButton3 = document.getElementById('onboarding-back-3');
+const googleClientIdInput = document.getElementById('google-client-id-input');
+const authContainerOnboarding = document.getElementById('auth-container');
 
 // Instructions Modal Elements
-const instructionsModal = document.getElementById('google-client-id-instructions-modal') as HTMLElement;
+const instructionsModal = document.getElementById('google-client-id-instructions-modal');
 const openInstructionsLinks = document.querySelectorAll('.open-client-id-instructions');
-const closeInstructionsButton = document.getElementById('close-instructions-button') as HTMLButtonElement;
+const closeInstructionsButton = document.getElementById('close-instructions-button');
 
 
 // --- State Variables ---
-let currentEventDraft: any | null = null;
-let editModeEventId: string | null = null;
+let currentEventDraft = null;
+let editModeEventId = null;
 let isWaitingForConfirmation = false;
 let isRecognizingSpeech = false;
 let isCameraOptionsOpen = false;
-let userLocation: { latitude: number, longitude: number } | null = null;
-let currentStream: MediaStream | null = null;
-let imageBase64DataForNextSend: string | null = null;
+let userLocation = null;
+let currentStream = null;
+let imageBase64DataForNextSend = null;
 
 
 // --- Onboarding Flow ---
-function showOnboardingStep(stepNumber: number) {
-    onboardingSteps.forEach(step => (step as HTMLElement).style.display = 'none');
+function showOnboardingStep(stepNumber) {
+    onboardingSteps.forEach(step => (step).style.display = 'none');
     const currentStep = document.getElementById(`onboarding-step-${stepNumber}`);
     if (currentStep) {
         currentStep.style.display = 'block';
@@ -116,7 +107,6 @@ function setupOnboarding() {
     backButton2.onclick = () => showOnboardingStep(1);
 
     nextButton2.onclick = () => {
-        // FIX: Gemini API key is now handled by environment variable, remove related UI logic.
         const googleId = googleClientIdInput.value.trim();
 
         if (!googleId) {
@@ -126,7 +116,6 @@ function setupOnboarding() {
 
         localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
         
-        // Re-initialize with new keys
         initializeApiClients();
         showOnboardingStep(3);
     };
@@ -138,17 +127,13 @@ function setupOnboarding() {
 function initializeApiClients() {
     GOOGLE_CLIENT_ID = localStorage.getItem('GOOGLE_CLIENT_ID');
     
-    // Reset auth state in case keys changed
     gapiInited = false;
     gisInited = false;
 
-    // Trigger re-initialization of GAPI/GIS if they are already loaded
-    // FIX: Use direct access to `gapi` and `google` as they are declared globally for this module.
-    // This resolves the TypeScript error "Property 'gapi' does not exist on type 'Window'".
     if (typeof gapi !== 'undefined') gapi.load('client', initializeGapiClient);
     if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID) {
         tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID!,
+            client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
             callback: '', // defined later
         });
@@ -160,7 +145,6 @@ function initializeApiClients() {
 
 async function initializeGapiClient() {
   await gapi.client.init({
-    // apiKey is not strictly needed for OAuth flow but good for discovery
     discoveryDocs: DISCOVERY_DOCS,
   });
   gapiInited = true;
@@ -171,12 +155,11 @@ function maybeEnableAuthUI() {
   if (gapiInited && gisInited && GOOGLE_CLIENT_ID) {
     const signInButtonHtml = `<button class="action-button primary">Войти через Google</button>`;
     
-    // Add button to both onboarding and settings modals
     authContainerOnboarding.innerHTML = signInButtonHtml;
     authContainerSettings.innerHTML = signInButtonHtml;
     
-    authContainerOnboarding.querySelector('button')!.onclick = handleAuthClick;
-    authContainerSettings.querySelector('button')!.onclick = handleAuthClick;
+    authContainerOnboarding.querySelector('button').onclick = handleAuthClick;
+    authContainerSettings.querySelector('button').onclick = handleAuthClick;
     
     updateWelcomeScreenVisibility();
   }
@@ -189,7 +172,7 @@ function handleAuthClick() {
     appendMessage("Ошибка входа: сервис аутентификации еще не готов.", 'system', 'error');
     return;
   }
-  tokenClient.callback = async (resp: any) => {
+  tokenClient.callback = async (resp) => {
     if (resp.error !== undefined) {
       console.error('Google token client error:', resp);
       appendMessage('Не удалось войти в Google. Пожалуйста, попробуйте еще раз.', 'system', 'error');
@@ -214,7 +197,6 @@ function handleAuthClick() {
     updateSignInStatus(true, userInfo);
     await listUpcomingEvents();
     
-    // Onboarding complete!
     if (localStorage.getItem('onboardingComplete') !== 'true') {
         localStorage.setItem('onboardingComplete', 'true');
         onboardingModal.style.display = 'none';
@@ -242,7 +224,7 @@ function handleSignOutClick() {
   }
 }
 
-function updateSignInStatus(isSignedIn: boolean, userInfo: any = null) {
+function updateSignInStatus(isSignedIn, userInfo = null) {
   if (isSignedIn) {
     userProfile.style.display = 'flex';
     if (userInfo) {
@@ -261,7 +243,7 @@ function updateSignInStatus(isSignedIn: boolean, userInfo: any = null) {
 
     calendarLoginPrompt.style.display = 'none';
     upcomingEventsList.style.display = 'block';
-    welcomeScreen.querySelector('.welcome-subheading')!.textContent = 'Чем я могу помочь вам сегодня?';
+    welcomeScreen.querySelector('.welcome-subheading').textContent = 'Чем я могу помочь вам сегодня?';
     
   } else {
     userProfile.style.display = 'none';
@@ -275,7 +257,7 @@ function updateSignInStatus(isSignedIn: boolean, userInfo: any = null) {
     upcomingEventsList.style.display = 'none';
     quickActionsBar.style.display = 'none';
     upcomingEventsList.innerHTML = '';
-    welcomeScreen.querySelector('.welcome-subheading')!.textContent = 'Войдите в свой аккаунт Google, чтобы начать управлять календарем.';
+    welcomeScreen.querySelector('.welcome-subheading').textContent = 'Войдите в свой аккаунт Google, чтобы начать управлять календарем.';
   }
   updateWelcomeScreenVisibility();
 }
@@ -306,7 +288,7 @@ async function listUpcomingEvents() {
       return;
     }
 
-    events.forEach((event: any) => {
+    events.forEach((event) => {
       const start = event.start?.dateTime || event.start?.date;
       if (!start) return;
 
@@ -337,13 +319,13 @@ async function listUpcomingEvents() {
       `;
       upcomingEventsList.appendChild(eventElement);
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('Execute error', err);
     appendMessage(`Ошибка при загрузке событий: ${err.message}`, 'system', 'error');
   }
 }
 
-async function createCalendarEvent(eventData: any) {
+async function createCalendarEvent(eventData) {
   if (!gapiInited || !gapi.client.getToken()) {
     appendMessage('Пожалуйста, войдите в Google, чтобы создать событие.', 'system', 'error');
     return;
@@ -357,14 +339,14 @@ async function createCalendarEvent(eventData: any) {
     appendMessage(`Событие **"${response.result.summary}"** успешно создано!`, 'system');
     await listUpcomingEvents(); // Refresh the list
     return response.result;
-  } catch (err: any) {
+  } catch (err) {
     console.error('Execute error', err);
     appendMessage(`Ошибка при создании события: ${err.message}`, 'system', 'error');
     return null;
   }
 }
 
-async function updateCalendarEvent(eventId: string, eventData: any) {
+async function updateCalendarEvent(eventId, eventData) {
     if (!gapiInited || !gapi.client.getToken()) {
       appendMessage('Пожалуйста, войдите в Google, чтобы обновить событие.', 'system', 'error');
       return;
@@ -379,14 +361,14 @@ async function updateCalendarEvent(eventId: string, eventData: any) {
       appendMessage(`Событие **"${response.result.summary}"** успешно обновлено!`, 'system');
       await listUpcomingEvents();
       return response.result;
-    } catch (err: any) {
+    } catch (err) {
       console.error('Execute error', err);
       appendMessage(`Ошибка при обновлении события: ${err.message}`, 'system', 'error');
       return null;
     }
   }
 
-async function deleteCalendarEvent(eventId: string) {
+async function deleteCalendarEvent(eventId) {
     if (!gapiInited || !gapi.client.getToken()) return;
     try {
         await gapi.client.calendar.events.delete({
@@ -395,7 +377,7 @@ async function deleteCalendarEvent(eventId: string) {
         });
         appendMessage('Событие успешно удалено.', 'system');
         await listUpcomingEvents();
-    } catch (err: any) {
+    } catch (err) {
         console.error('Delete error', err);
         appendMessage(`Ошибка при удалении события: ${err.message}`, 'system', 'error');
     }
@@ -403,8 +385,8 @@ async function deleteCalendarEvent(eventId: string) {
 
 
 // --- Speech Recognition ---
-const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-let recognition: any | null = null;
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.continuous = false;
@@ -412,8 +394,8 @@ if (SpeechRecognition) {
   recognition.interimResults = false;
 
   recognition.onstart = () => { isRecognizingSpeech = true; micButtonChat.classList.add('active'); };
-  recognition.onresult = (event: any) => { handleUserInput(event.results[0][0].transcript); };
-  recognition.onerror = (event: any) => { console.error('Ошибка распознавания речи:', event.error); };
+  recognition.onresult = (event) => { handleUserInput(event.results[0][0].transcript); };
+  recognition.onerror = (event) => { console.error('Ошибка распознавания речи:', event.error); };
   recognition.onend = () => { isRecognizingSpeech = false; micButtonChat.classList.remove('active'); setLoading(false); };
 } else {
   console.warn('Распознавание речи не поддерживается этим браузером.');
@@ -422,7 +404,7 @@ if (SpeechRecognition) {
 
 
 // --- UI Helper Functions ---
-function setLoading(isLoading: boolean) {
+function setLoading(isLoading) {
   loadingIndicator.style.display = isLoading ? 'flex' : 'none';
   chatTextInput.disabled = isLoading;
   micButtonChat.disabled = isLoading || isRecognizingSpeech;
@@ -439,16 +421,16 @@ function updateWelcomeScreenVisibility() {
 }
 
 function appendMessage(
-  content: string,
-  sender: 'user' | 'ai' | 'system',
-  type: 'text' | 'confirmation_request' | 'error' = 'text',
-  eventData: any = null
+  content,
+  sender,
+  type = 'text',
+  eventData = null
 ) {
   const messageBubble = document.createElement('div');
   messageBubble.classList.add('message-bubble', sender);
   if (type === 'error') messageBubble.classList.add('error-message');
 
-  let mainContentHtml = marked.parse(content) as string;
+  let mainContentHtml = marked.parse(content);
   let eventHtml = '';
 
   if (type === 'confirmation_request' && eventData) {
@@ -487,7 +469,7 @@ function appendMessage(
   updateWelcomeScreenVisibility();
 }
 
-async function processAiResponse(parsedData: any) {
+async function processAiResponse(parsedData) {
   switch (parsedData.action) {
     case 'LIST_EVENTS':
       if (parsedData.generalResponse) {
@@ -551,7 +533,7 @@ function handleCancelEvent() {
   appendMessage('Чем могу помочь?', 'ai');
 }
 
-async function handleEditEventStart(eventId: string) {
+async function handleEditEventStart(eventId) {
     if (!gapiInited || !gapi.client.getToken()) {
         appendMessage('Пожалуйста, войдите, чтобы редактировать события.', 'system', 'error');
         return;
@@ -575,7 +557,7 @@ async function handleEditEventStart(eventId: string) {
         isWaitingForConfirmation = false;
 
         appendMessage(`Редактируем событие: **"${event.summary}"**. Что вы хотите изменить?`, 'ai');
-    } catch (err: any) {
+    } catch (err) {
         console.error('Error fetching event for edit:', err);
         appendMessage(`Не удалось загрузить событие для редактирования: ${err.message}`, 'system', 'error');
         currentEventDraft = null;
@@ -585,14 +567,14 @@ async function handleEditEventStart(eventId: string) {
     }
 }
 
-async function handleListEventsAction(params: any = {}) {
+async function handleListEventsAction(params = {}) {
   if (!gapiInited || !gapi.client.getToken()) {
     appendMessage('Пожалуйста, войдите в Google, чтобы просмотреть события.', 'system', 'error');
     return;
   }
   setLoading(true);
   try {
-    const defaultParams: { [key: string]: any } = {
+    const defaultParams = {
       'calendarId': 'primary',
       'showDeleted': false,
       'singleEvents': true,
@@ -600,7 +582,6 @@ async function handleListEventsAction(params: any = {}) {
       'orderBy': 'startTime'
     };
     
-    // Use current time if not specified by AI
     if (!params.timeMin && !params.timeMax) {
         defaultParams['timeMin'] = (new Date()).toISOString();
     }
@@ -617,13 +598,13 @@ async function handleListEventsAction(params: any = {}) {
     }
 
     let responseText = "Вот ваши предстоящие события:\n\n";
-    events.forEach((event: any) => {
+    events.forEach((event) => {
       const start = new Date(event.start.dateTime || event.start.date);
       responseText += `*   **${event.summary}** - ${start.toLocaleString('ru-RU')}\n`;
     });
     appendMessage(responseText, 'ai');
 
-  } catch (err: any) {
+  } catch (err) {
     console.error('List events error', err);
     appendMessage(`Ошибка при загрузке событий: ${err.message}`, 'system', 'error');
   } finally {
@@ -631,7 +612,7 @@ async function handleListEventsAction(params: any = {}) {
   }
 }
 
-async function handleUserInput(text: string) {
+async function handleUserInput(text) {
   const userInput = text.trim();
   if (userInput === '') return;
 
@@ -675,9 +656,7 @@ async function handleUserInput(text: string) {
   `;
 
   try {
-    // FIX: Per Gemini guidelines, `ai` client is now a const initialized at the top,
-    // so no need to check for its existence here.
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: userPrompt,
         config: {
@@ -692,11 +671,10 @@ async function handleUserInput(text: string) {
 
     await processAiResponse(parsedData);
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Ошибка Gemini API:", error);
     let errorMessage = "К сожалению, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.";
     if (error.message) {
-      // Check for common JSON parsing error from Gemini
       if (error.message.includes('Unexpected token')) {
         errorMessage = "Получен некорректный ответ от ассистента. Пожалуйста, попробуйте переформулировать ваш запрос.";
       } else {
@@ -723,7 +701,7 @@ function closeSettingsModal() {
     settingsModal.setAttribute('aria-hidden', 'true');
 }
 
-function openInstructionsModal(event: Event) {
+function openInstructionsModal(event) {
     event.preventDefault();
     instructionsModal.style.display = 'flex';
     instructionsModal.setAttribute('aria-hidden', 'false');
@@ -737,7 +715,7 @@ function openInstructionsModal(event: Event) {
     
     instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
         button.addEventListener('click', async (e) => {
-            const currentButton = e.currentTarget as HTMLButtonElement;
+            const currentButton = e.currentTarget;
             const targetId = currentButton.dataset.target;
             if (!targetId) return;
 
@@ -798,20 +776,17 @@ function closeCameraModal() {
 // --- App Initialization & Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
     
-    // --- Google API Initialization Handling ---
     document.addEventListener('gapiLoaded', () => gapi.load('client', initializeGapiClient));
     document.addEventListener('gisInitalised', initializeApiClients);
 
     initializeApiClients();
 
     if (localStorage.getItem('onboardingComplete') !== 'true') {
-        // If GOOGLE_CLIENT_ID is missing, force onboarding.
         if (!localStorage.getItem('GOOGLE_CLIENT_ID')) {
             setupOnboarding();
         }
     }
 
-    // --- Main UI Listeners ---
     settingsButton.addEventListener('click', openSettingsModal);
     closeSettingsButton.addEventListener('click', closeSettingsModal);
 
@@ -838,7 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const googleId = settingsGoogleClientIdInput.value.trim();
         if (googleId) {
             localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
-            initializeApiClients(); // Re-init with new keys
+            initializeApiClients();
             appendMessage('Ключи API сохранены.', 'system');
             closeSettingsModal();
         } else {
@@ -846,7 +821,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // --- Camera & Image Upload ---
     cameraButtonChat.addEventListener('click', () => {
         isCameraOptionsOpen = !isCameraOptionsOpen;
         cameraOptionsMenu.style.display = isCameraOptionsOpen ? 'block' : 'none';
@@ -877,12 +851,12 @@ document.addEventListener('DOMContentLoaded', () => {
     cancelCameraButton.addEventListener('click', closeCameraModal);
     
     imageUploadInputChat.addEventListener('change', (event) => {
-        const target = event.target as HTMLInputElement;
+        const target = event.target;
         const file = target.files?.[0];
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                const base64String = (reader.result as string).split(',')[1];
+                const base64String = (reader.result).split(',')[1];
                 imageBase64DataForNextSend = base64String;
                 appendMessage('Изображение загружено. Теперь опишите, что вы хотите сделать.', 'system');
             };
@@ -890,13 +864,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // --- Modals ---
     openInstructionsLinks.forEach(link => link.addEventListener('click', openInstructionsModal));
     closeInstructionsButton.addEventListener('click', closeInstructionsModal);
 
-    // --- Dynamic Content Listeners (Event Delegation) ---
     upcomingEventsList.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
+        const target = e.target;
         const eventId = target.dataset.eventId;
         if (!eventId) return;
 
@@ -910,15 +882,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     suggestionChipsContainer.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
+        const target = e.target;
         if (target.classList.contains('suggestion-chip') && target.textContent) {
             handleUserInput(target.textContent);
         }
     });
 
     quickActionsBar.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
-        const action = target.closest<HTMLButtonElement>('.quick-action-chip')?.dataset.action;
+        const target = e.target;
+        const action = target.closest('.quick-action-chip')?.dataset.action;
         if (!action) return;
 
         let prompt = '';
