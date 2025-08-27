@@ -50,6 +50,9 @@ const dom = {
     userAvatar: document.getElementById('user-avatar'),
     userName: document.getElementById('user-name'),
     settingsButton: document.getElementById('settings-button'),
+    authButtonHeader: document.getElementById('auth-button-header'),
+    signOutButtonHeader: document.getElementById('sign-out-button-header'),
+    authContainerSettings: document.getElementById('auth-container-settings'),
     calendarLoginPrompt: document.getElementById('calendar-login-prompt'),
     calendarViewContainer: document.getElementById('calendar-view-container'),
     prevMonthButton: document.getElementById('prev-month-button'),
@@ -136,18 +139,23 @@ async function updateUiForAuthState(isSignedIn) {
         dom.calendarViewContainer.style.display = 'grid';
         dom.suggestionChipsContainer.style.display = 'flex';
 
+        // Header UI
+        dom.userProfile.style.display = 'flex';
+        dom.authButtonHeader.style.display = 'none';
+        dom.signOutButtonHeader.style.display = 'inline-flex';
+
+        // Settings Modal UI
+        dom.authContainerSettings.innerHTML = `<p>Вы вошли в аккаунт Google.</p>`;
+
         const profile = await gapi.client.request({
             path: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json'
         });
         dom.userName.textContent = profile.result.name;
         dom.userAvatar.src = profile.result.picture;
-        dom.userProfile.style.display = 'flex';
 
         renderCalendar(currentDisplayedDate);
         renderDailyEvents(currentDisplayedDate);
 
-        document.getElementById('auth-container-settings').innerHTML = `<button id="sign-out-button" class="action-button">Выйти</button>`;
-        document.getElementById('sign-out-button').onclick = handleSignOutClick;
     } else {
         dom.welcomeScreen.style.display = 'flex';
         dom.userProfile.style.display = 'none';
@@ -155,15 +163,19 @@ async function updateUiForAuthState(isSignedIn) {
         dom.calendarViewContainer.style.display = 'none';
         dom.suggestionChipsContainer.style.display = 'none';
         
+        // Header UI
+        dom.signOutButtonHeader.style.display = 'none';
+
         if (!keysExist) {
+            dom.authButtonHeader.style.display = 'none';
             dom.welcomeSubheading.textContent = "Для начала работы введите ключи API в настройках (⚙️).";
             dom.calendarLoginPrompt.textContent = "Введите ключи API в настройках.";
-            document.getElementById('auth-container-settings').innerHTML = `<p>Сначала сохраните ключи API.</p>`;
+            dom.authContainerSettings.innerHTML = `<p>Сначала сохраните ключи API.</p>`;
         } else {
+            dom.authButtonHeader.style.display = 'inline-flex';
             dom.welcomeSubheading.textContent = "Войдите в свой аккаунт Google.";
             dom.calendarLoginPrompt.textContent = "Войдите, чтобы увидеть ваш календарь.";
-            document.getElementById('auth-container-settings').innerHTML = `<button id="auth-button" class="action-button primary">Войти через Google</button>`;
-            document.getElementById('auth-button').onclick = handleAuthClick;
+            dom.authContainerSettings.innerHTML = `<p>Для доступа к календарю войдите в свой аккаунт Google, используя кнопку в заголовке.</p>`;
         }
     }
 }
@@ -478,6 +490,9 @@ function setupEventListeners() {
     dom.settingsButton.addEventListener('click', () => showModal(dom.settingsModal));
     document.getElementById('close-settings-button').addEventListener('click', () => closeModal(dom.settingsModal));
     document.getElementById('close-instructions-button').addEventListener('click', () => closeModal(dom.googleClientIdInstructionsModal));
+    
+    dom.authButtonHeader.addEventListener('click', handleAuthClick);
+    dom.signOutButtonHeader.addEventListener('click', handleSignOutClick);
 
     document.querySelector('.open-client-id-instructions').addEventListener('click', (e) => {
         e.preventDefault();

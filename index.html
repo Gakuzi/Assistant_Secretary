@@ -29,6 +29,14 @@
           <img id="user-avatar" src="" alt="User Avatar">
           <span id="user-name"></span>
         </div>
+        <button id="auth-button-header" class="action-button primary" style="display: none;">
+            <span class="material-symbols-outlined">login</span>
+            Войти через Google
+        </button>
+        <button id="sign-out-button-header" class="action-button" style="display: none;">
+            Выйти
+            <span class="material-symbols-outlined">logout</span>
+        </button>
         <button id="settings-button" class="icon-button" aria-label="Настройки">
           <span class="material-symbols-outlined">settings</span>
         </button>
@@ -115,7 +123,7 @@
           
           <h4>Интеграция с Google</h4>
           <div id="auth-container-settings">
-            <!-- Auth buttons will be dynamically added here for settings -->
+             <!-- Auth status will be dynamically added here -->
           </div>
           
           <h4 style="margin-top: 24px;">Управление API-ключами</h4>
