@@ -34,15 +34,15 @@
     </header>
 
     <main class="main-content">
-      <div class="chat-panel view" id="chat-view" data-view="chat">
+      <div class="chat-panel view active" id="chat-view" data-view="chat">
         <div id="message-list" role="log" aria-live="polite">
           <!-- Сообщения будут добавляться сюда -->
         </div>
 
-        <div id="welcome-screen">
+        <div id="welcome-screen" style="display: none;">
           <h2 id="welcome-greeting">Ваш личный ассистент</h2>
-          <p id="welcome-subheading" class="welcome-subheading">Для начала работы введите Gemini API Key в настройках.</p>
-          <div id="suggestion-chips-container" style="display: none;">
+          <p id="welcome-subheading" class="welcome-subheading"></p>
+          <div id="suggestion-chips-container">
             <button class="suggestion-chip">Создать встречу на завтра в 10 утра с Иваном для обсуждения проекта</button>
             <button class="suggestion-chip">Какие у меня планы на эту пятницу?</button>
             <button class="suggestion-chip">Напомни мне позвонить в сервис в 15:00</button>
@@ -74,7 +74,7 @@
       </div>
 
       <aside class="calendar-panel view" id="calendar-view" data-view="calendar">
-          <div id="calendar-login-prompt" class="panel-placeholder">
+          <div id="calendar-login-prompt" class="panel-placeholder" style="display: none;">
             <span class="material-symbols-outlined">lock</span>
             <p>Войдите в аккаунт Google, чтобы увидеть ваш календарь.</p>
           </div>
@@ -117,6 +117,28 @@
     </nav>
   </div>
 
+  <div id="setup-screen" style="display: none;">
+      <div class="setup-container">
+          <div id="setup-step-1" class="setup-step">
+              <span class="material-symbols-outlined setup-icon">key</span>
+              <h2>Шаг 1: Настройка Gemini API</h2>
+              <p>Для работы ассистента требуется ключ Gemini API. Получите его в <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> и вставьте ниже.</p>
+              <div class="form-field">
+                  <label for="setup-gemini-api-key">Gemini API Key</label>
+                  <input type="password" id="setup-gemini-api-key" placeholder="Вставьте ваш Gemini API Key">
+              </div>
+              <button id="setup-save-api-key-button" class="action-button primary">Сохранить и продолжить</button>
+          </div>
+          <div id="setup-step-2" class="setup-step">
+              <span class="material-symbols-outlined setup-icon">login</span>
+              <h2>Шаг 2: Вход в Google</h2>
+              <p>Отлично! Теперь войдите в свой аккаунт Google, чтобы ассистент мог управлять вашим календарем и задачами.</p>
+              <button id="setup-auth-button" class="action-button primary">Войти через Google</button>
+          </div>
+      </div>
+  </div>
+
+
   <div id="settings-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" style="display:none;">
       <div class="modal-content">
           <button id="close-settings-button" class="icon-button close-modal-button" aria-label="Закрыть настройки">
@@ -137,6 +159,7 @@
           </div>
 
           <div class="modal-actions">
+            <button id="reset-app-button" class="action-button danger">Сбросить и начать заново</button>
             <button id="save-api-keys-button" class="action-button primary">Сохранить</button>
           </div>
       </div>
@@ -144,7 +167,7 @@
 
   <script>
     function onGapiLoad() { window.gapiLoadedCallback && window.gapiLoadedCallback(); }
-    function onGisLoad() { window.gisInitalisedCallback && window.gisInitalisedCallback(); }
+    function onGisLoad() { window.gisInalidCallback && window.gisInalidCallback(); }
   </script>
   <script async defer src="https://apis.google.com/js/api.js" onload="onGapiLoad()"></script>
   <script async defer src="https://accounts.google.com/gsi/client" onload="onGisLoad()"></script>
