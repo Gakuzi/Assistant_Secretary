@@ -43,11 +43,8 @@
 
         <div id="welcome-screen">
           <h2 id="welcome-greeting">Здравствуйте!</h2>
-          <p id="welcome-subheading" class="welcome-subheading">Начните настройку, чтобы управлять календарем.</p>
-          <div id="welcome-auth-container">
-            <!-- Кнопка входа будет добавлена сюда, если ключи есть, но пользователь не авторизован -->
-          </div>
-          <div id="suggestion-chips-container">
+          <p id="welcome-subheading" class="welcome-subheading">Начните с ввода ключей API в настройках.</p>
+          <div id="suggestion-chips-container" style="display: none;">
             <button class="suggestion-chip">Создать встречу на завтра</button>
             <button class="suggestion-chip">Запланировать звонок</button>
             <button class="suggestion-chip">Какая погода?</button>
@@ -114,49 +111,6 @@
     </main>
   </div>
   
-  <div id="onboarding-modal" class="modal" style="display:none;" aria-hidden="true" aria-modal="true">
-    <div class="modal-content onboarding-content">
-      <!-- Step 1: Welcome -->
-      <div id="onboarding-step-1" class="onboarding-step">
-        <span class="material-symbols-outlined header-logo">calendar_month</span>
-        <h2>Добро пожаловать!</h2>
-        <p>Это ваш личный ассистент для управления Google Календарем. Чтобы начать, нужно настроить интеграцию. Это займет всего минуту.</p>
-        <button id="onboarding-next-1" class="action-button primary">Начать настройку</button>
-      </div>
-      <!-- Step 2: API Keys -->
-      <div id="onboarding-step-2" class="onboarding-step" style="display: none;">
-        <h2>Настройка ключей API</h2>
-        <p>Для работы ассистента требуются ключи от Google и Gemini. Они будут храниться только в вашем браузере и никуда не передаются.</p>
-        <div class="form-field">
-          <label for="gemini-api-key-input">Gemini API Key</label>
-          <input type="password" id="gemini-api-key-input" placeholder="Вставьте ваш Gemini API Key">
-          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить API Key</a>
-        </div>
-        <div class="form-field">
-          <label for="google-client-id-input">Google Client ID</label>
-          <input type="password" id="google-client-id-input" placeholder="Вставьте ваш Google Client ID">
-           <a href="#" class="open-client-id-instructions">Получить Client ID</a>
-        </div>
-        <div class="modal-actions">
-           <button id="onboarding-back-2" class="action-button">Назад</button>
-           <button id="onboarding-next-2" class="action-button primary">Сохранить и продолжить</button>
-        </div>
-      </div>
-      <!-- Step 3: Login -->
-      <div id="onboarding-step-3" class="onboarding-step" style="display: none;">
-        <h2>Последний шаг</h2>
-        <p>Отлично! Теперь осталось только войти в ваш аккаунт Google, чтобы предоставить ассистенту доступ к календарю.</p>
-        <div id="auth-container">
-            <!-- Auth buttons will be dynamically added here -->
-        </div>
-        <div class="modal-actions">
-           <button id="onboarding-back-3" class="action-button">Назад</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-
   <div id="camera-modal" class="modal" style="display:none;" aria-hidden="true">
     <div class="modal-content">
       <video id="camera-stream" width="320" height="240" autoplay playsinline aria-label="Видеопоток с камеры"></video>

@@ -1,3 +1,4 @@
+
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -65,7 +66,6 @@ const dom = {
     dailyEventsContainer: document.getElementById('daily-events-container'),
     dailyEventsHeader: document.getElementById('daily-events-header'),
     dailyEventsList: document.getElementById('daily-events-list'),
-    onboardingModal: document.getElementById('onboarding-modal'),
     settingsModal: document.getElementById('settings-modal'),
     googleClientIdInstructionsModal: document.getElementById('google-client-id-instructions-modal'),
 };
@@ -82,7 +82,6 @@ let recognition;
  * @returns {Promise<boolean>} - True if GAPI client was successful, false otherwise.
  */
 async function initializeGapiClient() {
-    // Reset state flags
     gapiInited = false;
     gisInited = false;
     pickerApiLoaded = false;
@@ -91,15 +90,13 @@ async function initializeGapiClient() {
         await gapiReady;
         await gisReady;
 
-        // Initialize GIS/token client first. It's crucial for re-auth.
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
             callback: handleTokenResponse,
         });
-        gisInited = true; // GIS is ready for auth attempts.
+        gisInited = true;
 
-        // Now initialize the rest of GAPI for API calls
         await new Promise((resolve, reject) => {
             gapi.load('client:picker', { callback: resolve, onerror: reject });
         });
@@ -110,20 +107,15 @@ async function initializeGapiClient() {
             discoveryDocs: DISCOVERY_DOCS,
             scope: SCOPES,
         });
-        gapiInited = true; // GAPI client is ready for API calls.
+        gapiInited = true;
 
         const token = gapi.client.getToken();
         updateUiForAuthState(token !== null && token.access_token);
-        return true; // Full success
-
+        return true; 
     } catch (error) {
         console.error('Error initializing Google API client:', error);
-        // An error occurred (likely with gapi.client.init), but gisInited might still be true.
-        // gapiInited remains false because init failed.
-        
-        // This will now correctly show the config error state but allow re-auth
         updateUiForAuthState(false); 
-        return false; // Failure
+        return false;
     }
 }
 
@@ -156,8 +148,6 @@ async function reconfigureClientsFromStorage() {
  * Main entry point for the application.
  */
 async function initializeApp() {
-    // Run this first to ensure settings button is always active,
-    // even if GAPI initialization fails.
     setupEventListeners();
 
     document.getElementById('instructions-js-origin').textContent = window.location.origin;
@@ -168,7 +158,7 @@ async function initializeApp() {
     if (keysExist) {
         await reconfigureClientsFromStorage();
     } else {
-        showOnboardingModal();
+        updateUiForAuthState(false); // No keys, go to unconfigured state
     }
 }
 
@@ -214,10 +204,6 @@ async function handleTokenResponse(response) {
     }
     gapi.client.setToken(response);
     await updateUiForAuthState(true);
-    // Hide modals if they are open after successful login
-    if (dom.onboardingModal.classList.contains('visible')) {
-        closeModal(dom.onboardingModal);
-    }
     if (dom.settingsModal.classList.contains('visible')) {
         closeModal(dom.settingsModal);
     }
@@ -229,12 +215,14 @@ async function handleTokenResponse(response) {
  * @param {boolean} isSignedIn - Whether the user is signed in.
  */
 async function updateUiForAuthState(isSignedIn) {
-    const welcomeAuthContainer = document.getElementById('welcome-auth-container');
+    const keysExist = localStorage.getItem('geminiApiKey') && localStorage.getItem('googleClientId');
+
     if (isSignedIn) {
         dom.welcomeScreen.style.display = 'none';
         dom.calendarLoginPrompt.style.display = 'none';
         dom.calendarViewContainer.style.display = 'grid';
-        welcomeAuthContainer.style.display = 'none';
+        dom.suggestionChipsContainer.style.display = 'flex';
+
 
         // Fetch and display user profile
         try {
@@ -263,11 +251,9 @@ async function updateUiForAuthState(isSignedIn) {
             console.error('Error fetching user profile:', err);
         }
 
-        // Setup calendar
         renderCalendar(currentDisplayedDate);
         loadCalendarEvents(currentDisplayedDate.getFullYear(), currentDisplayedDate.getMonth());
 
-        // Update auth buttons in settings
         document.getElementById('auth-container-settings').innerHTML = '';
         const signOutButton = document.getElementById('sign-out-button');
         signOutButton.style.display = 'block';
@@ -280,24 +266,18 @@ async function updateUiForAuthState(isSignedIn) {
         dom.calendarViewContainer.style.display = 'none';
         document.getElementById('settings-user-profile').style.display = 'none';
         document.getElementById('sign-out-button').style.display = 'none';
-
-        const keysExist = localStorage.getItem('googleClientId');
-        // `gapiInited` checks if the API client (calendar etc) is ready.
-        // `gisInited` checks if the auth client is ready.
-        if (keysExist && gapiInited) { // Keys exist, all APIs ready -> show login.
-            dom.welcomeSubheading.textContent = "Войдите в свой аккаунт Google, чтобы начать управлять календарем.";
-            dom.suggestionChipsContainer.style.display = 'none';
-            welcomeAuthContainer.style.display = 'block';
-        } else if (keysExist && !gapiInited) { // Keys exist, but GAPI client failed (config error).
-             dom.welcomeSubheading.textContent = "Ошибка конфигурации. Проверьте ключи в настройках.";
-             dom.suggestionChipsContainer.style.display = 'none';
-             welcomeAuthContainer.style.display = 'block'; // Show auth button to allow retrying.
-        } else { // No keys exist
-            dom.welcomeSubheading.textContent = "Начните настройку, чтобы управлять календарем.";
-            dom.suggestionChipsContainer.style.display = 'flex';
-            welcomeAuthContainer.style.display = 'none';
+        dom.suggestionChipsContainer.style.display = 'none';
+        
+        if (!keysExist) {
+            dom.welcomeSubheading.textContent = "Для начала работы введите ключи API в настройках (⚙️).";
+            dom.calendarLoginPrompt.textContent = "Введите ключи API в настройках.";
+        } else if (keysExist && !gapiInited) { 
+             dom.welcomeSubheading.textContent = "Ошибка конфигурации. Проверьте Client ID в настройках и попробуйте войти снова.";
+             dom.calendarLoginPrompt.textContent = "Ошибка конфигурации.";
+        } else {
+            dom.welcomeSubheading.textContent = "Войдите в свой аккаунт Google через меню настроек (⚙️).";
+            dom.calendarLoginPrompt.textContent = "Войдите, чтобы увидеть ваш календарь.";
         }
-
         displayAuthButtons();
     }
 }
@@ -307,86 +287,35 @@ async function updateUiForAuthState(isSignedIn) {
  * Creates and displays the "Sign in with Google" button.
  */
 function displayAuthButtons() {
-    const authContainerOnboarding = document.getElementById('auth-container');
     const authContainerSettings = document.getElementById('auth-container-settings');
-    const authContainerWelcome = document.getElementById('welcome-auth-container');
-    const containers = [authContainerOnboarding, authContainerSettings, authContainerWelcome];
+    if (!authContainerSettings) return;
 
-    const createAuthButton = () => {
+    authContainerSettings.innerHTML = '';
+    const keysExist = localStorage.getItem('geminiApiKey') && localStorage.getItem('googleClientId');
+
+    if (!keysExist) {
+        authContainerSettings.innerHTML = '<p style="font-size: 0.9em; color: var(--text-color-secondary);">Сначала сохраните ключи API, чтобы включить авторизацию.</p>';
+        return;
+    }
+
+    if (gisInited) {
         const button = document.createElement('button');
         button.className = 'action-button primary';
-        button.style.margin = '16px 0';
+        button.style.margin = '0';
         button.onclick = handleAuthClick;
         button.innerHTML = `<svg width="20" height="20" viewBox="0 0 20 20" style="margin-right: 8px;" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M19.6 10.2045C19.6 9.50907 19.5409 8.8318 19.4273 8.1818H10V11.8727H15.5545C15.3364 13.0182 14.7364 14.0182 13.8455 14.6591V17.1364H16.7136C18.5273 15.4636 19.6 13.0318 19.6 10.2045Z" fill="#4285F4"/><path d="M10 20C12.7 20 15.0136 19.0455 16.7136 17.1364L13.8455 14.6591C12.9227 15.2545 11.5864 15.6818 10 15.6818C7.38182 15.6818 5.15 13.9818 4.31818 11.6409H1.35909V14.2C3.05909 17.65 6.27727 20 10 20Z" fill="#34A853"/><path d="M4.31818 11.6409C4.12727 11.0864 4.01364 10.4955 4.01364 9.88636C4.01364 9.27727 4.12727 8.68636 4.31818 8.13182V5.57273H1.35909C0.5 7.15909 0 8.46364 0 9.88636C0 11.3091 0.5 12.6136 1.35909 14.2L4.31818 11.6409Z" fill="#FBBC05"/><path d="M10 4.09091C11.4318 4.09091 12.7727 4.58636 13.8 5.53182L16.7818 2.58636C15.0091 0.981818 12.6955 0 10 0C6.27727 0 3.05909 2.35 1.35909 5.57273L4.31818 8.13182C5.15 5.79091 7.38182 4.09091 10 4.09091Z" fill="#EA4335"/></svg> Войти через Google`;
-        return button;
-    };
-
-    containers.forEach(container => {
-        if (container) {
-            container.innerHTML = ''; // Clear previous buttons
-            // Show auth button if GIS is ready, even if GAPI client failed.
-            // This allows the user to try signing in again.
-            if (gisInited) {
-                container.appendChild(createAuthButton());
-            }
-        }
-    });
+        authContainerSettings.appendChild(button);
+    } else {
+        authContainerSettings.innerHTML = '<p style="font-size: 0.9em; color: var(--error-color);">Не удалось загрузить сервисы авторизации. Проверьте Client ID.</p>';
+    }
 }
 
 
-// --- Modals (Onboarding & Settings) ---
+// --- Modals (Settings) ---
 
 function saveApiKeys(geminiKey, clientId) {
     localStorage.setItem('geminiApiKey', geminiKey);
     localStorage.setItem('googleClientId', clientId);
-}
-
-function showOnboardingModal() {
-    dom.onboardingModal.style.display = 'flex';
-    setTimeout(() => dom.onboardingModal.classList.add('visible'), 10);
-
-    const steps = [
-        document.getElementById('onboarding-step-1'),
-        document.getElementById('onboarding-step-2'),
-        document.getElementById('onboarding-step-3')
-    ];
-
-    const showOnboardingStep = (index) => {
-        steps.forEach((step, i) => {
-            step.style.display = i === index - 1 ? 'block' : 'none';
-        });
-    };
-
-    document.getElementById('onboarding-next-1').addEventListener('click', () => showOnboardingStep(2));
-    document.getElementById('onboarding-back-2').addEventListener('click', () => showOnboardingStep(1));
-    document.getElementById('onboarding-next-2').addEventListener('click', async () => {
-        const geminiKey = document.getElementById('gemini-api-key-input').value.trim();
-        const clientId = document.getElementById('google-client-id-input').value.trim();
-
-        if (!geminiKey || !clientId) {
-            alert('Пожалуйста, введите оба ключа API.');
-            return;
-        }
-
-        const button = document.getElementById('onboarding-next-2');
-        button.disabled = true;
-        button.textContent = 'Проверка...';
-        
-        saveApiKeys(geminiKey, clientId);
-        const success = await reconfigureClientsFromStorage(); 
-
-        button.disabled = false;
-        button.textContent = 'Сохранить и продолжить';
-        
-        if (success) {
-            showOnboardingStep(3);
-        } else {
-             alert("Не удалось проверить ключи. Пожалуйста, убедитесь, что они верны, и проверьте инструкцию по получению Client ID.");
-        }
-    });
-    document.getElementById('onboarding-back-3').addEventListener('click', () => showOnboardingStep(2));
-    
-    showOnboardingStep(1);
 }
 
 function showSettingsModal() {
@@ -396,12 +325,8 @@ function showSettingsModal() {
     document.getElementById('settings-gemini-api-key').value = localStorage.getItem('geminiApiKey') || '';
     document.getElementById('settings-google-client-id').value = localStorage.getItem('googleClientId') || '';
     
-    // Ensure auth buttons are up-to-date
-    if (gapi?.client?.getToken()) {
-        updateUiForAuthState(true);
-    } else {
-        updateUiForAuthState(false);
-    }
+    const isSignedIn = gapi?.client?.getToken();
+    updateUiForAuthState(!!isSignedIn);
 }
 
 function closeModal(modalElement) {
@@ -1148,10 +1073,12 @@ function setupEventListeners() {
         saveApiKeysButton.textContent = originalText;
         
         if (success) {
-            alert('Ключи успешно сохранены и проверены!');
+            alert('Ключи сохранены. Теперь войдите в свой аккаунт Google в этом же окне.');
         } else {
-            alert('Ключи сохранены, но не удалось их проверить. Убедитесь, что Client ID настроен правильно.');
+            alert('Ключи сохранены, но не удалось их проверить. Убедитесь, что Client ID настроен правильно, и попробуйте войти в аккаунт.');
         }
+        // Refresh the auth state in the modal after saving keys
+        updateUiForAuthState(false);
     });
 
     const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
