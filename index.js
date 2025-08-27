@@ -1,5 +1,3 @@
-
-
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -1193,13 +1191,15 @@ function closeCameraModal() {
 // --- App Initialization & Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
     
+    // Listen for the Google API scripts to load before trying to use them.
     document.addEventListener('gapiLoaded', () => gapi.load('client', initializeGapiClient));
     document.addEventListener('gisInitalised', initializeApiClients);
 
+    // Check if API keys are present. If not, start the onboarding flow.
+    // The actual API client initialization will be triggered by the event listeners above
+    // once the necessary Google scripts are loaded, preventing a race condition.
     if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
         setupOnboarding();
-    } else {
-        initializeApiClients();
     }
     
     selectedDate.setHours(0, 0, 0, 0);
