@@ -66,7 +66,6 @@ const settingsUserName = document.getElementById('settings-user-name') as HTMLEl
 const settingsUserEmail = document.getElementById('settings-user-email') as HTMLElement;
 const signOutButton = document.getElementById('sign-out-button') as HTMLButtonElement;
 const authContainerSettings = document.getElementById('auth-container-settings') as HTMLElement;
-const settingsGeminiKeyInput = document.getElementById('settings-gemini-api-key') as HTMLInputElement;
 const settingsGoogleClientIdInput = document.getElementById('settings-google-client-id') as HTMLInputElement;
 const saveApiKeysButton = document.getElementById('save-api-keys-button') as HTMLButtonElement;
 
@@ -78,7 +77,6 @@ const nextButton1 = document.getElementById('onboarding-next-1') as HTMLButtonEl
 const nextButton2 = document.getElementById('onboarding-next-2') as HTMLButtonElement;
 const backButton2 = document.getElementById('onboarding-back-2') as HTMLButtonElement;
 const backButton3 = document.getElementById('onboarding-back-3') as HTMLButtonElement;
-const geminiApiKeyInput = document.getElementById('gemini-api-key-input') as HTMLInputElement;
 const googleClientIdInput = document.getElementById('google-client-id-input') as HTMLInputElement;
 const authContainerOnboarding = document.getElementById('auth-container') as HTMLElement;
 
@@ -714,7 +712,6 @@ async function handleUserInput(text: string) {
 
 // --- App Initialization & Event Listeners ---
 function openSettingsModal() {
-    // FIX: Gemini API key is now handled by environment variable, remove related UI logic.
     settingsGoogleClientIdInput.value = localStorage.getItem('GOOGLE_CLIENT_ID') || '';
     settingsModal.style.display = 'flex';
     settingsModal.setAttribute('aria-hidden', 'false');
@@ -726,6 +723,23 @@ function closeSettingsModal() {
 }
 
 function openInstructionsModal() {
+    const origin = window.location.origin;
+    const jsOriginsEl = document.getElementById('instructions-js-origins');
+    const redirectUrisEl = document.getElementById('instructions-redirect-uris');
+
+    // Dynamically provide the correct URIs based on the environment
+    if (jsOriginsEl && redirectUrisEl) {
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            // For local development
+            jsOriginsEl.innerHTML = `<code>http://localhost:8000</code> и <code>http://localhost</code>`;
+            redirectUrisEl.innerHTML = `<code>http://localhost:8000</code> и <code>http://localhost</code>`;
+        } else {
+            // For deployed environment (like GitHub Pages)
+            jsOriginsEl.innerHTML = `<code>${origin}</code>`;
+            redirectUrisEl.innerHTML = `<code>${origin}</code>`;
+        }
+    }
+    
     instructionsModal.style.display = 'flex';
     instructionsModal.setAttribute('aria-hidden', 'false');
 }
@@ -830,7 +844,15 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshCalendarButton.addEventListener('click', listUpcomingEvents);
 
   // Settings Modal
-  settingsButton.addEventListener('click', openSettingsModal);
+  settingsButton.addEventListener('click', () => {
+    // If onboarding is not complete, show the onboarding/setup flow.
+    // Otherwise, show the regular settings modal.
+    if (localStorage.getItem('onboardingComplete') !== 'true') {
+        setupOnboarding();
+    } else {
+        openSettingsModal();
+    }
+  });
   closeSettingsButton.addEventListener('click', closeSettingsModal);
   signOutButton.addEventListener('click', handleSignOutClick);
   saveApiKeysButton.addEventListener('click', handleSaveApiKeys);
