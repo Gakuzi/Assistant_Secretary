@@ -24,8 +24,8 @@
         <h1>Ассистент</h1>
       </div>
       <div class="header-actions">
-        <div id="user-profile-menu">
-           <!-- Populated by JS -->
+        <div id="auth-status-container">
+           <!-- Auth button / User avatar will be dynamically added here -->
         </div>
         <button id="settings-button" class="icon-button" aria-label="Настройки">
           <span class="material-symbols-outlined">settings</span>
@@ -56,14 +56,19 @@
         
         <div class="chat-input-container">
           <div id="chat-input-bar">
-             <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
+             <button id="camera-button-chat" class="icon-button" aria-label="Прикрепить изображение">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
               </button>
             <input type="file" id="image-upload-input-chat" accept="image/*" style="display: none;">
             <textarea id="chat-text-input" placeholder="Спросите что-нибудь..." aria-label="Текстовый ввод для чата" rows="1"></textarea>
-            <button id="mic-button-chat" class="input-bar-button" aria-label="Голосовой ввод">
-              <span class="material-symbols-outlined">mic</span>
-            </button>
+            <div id="chat-input-actions">
+                <button id="mic-button-chat" class="icon-button" aria-label="Голосовой ввод">
+                  <span class="material-symbols-outlined">mic</span>
+                </button>
+                 <button id="send-button-chat" class="icon-button" aria-label="Отправить сообщение" style="display: none;">
+                    <span class="material-symbols-outlined">send</span>
+                </button>
+            </div>
           </div>
         </div>
       </div>
@@ -121,7 +126,7 @@
           
           <h4>Интеграция с Google</h4>
           <div id="auth-container-settings" class="settings-auth-status">
-             <!-- Auth status will be dynamically added here -->
+             <!-- Auth status and controls will be dynamically added here -->
           </div>
           
           <h4 style="margin-top: 24px;">Управление API-ключами</h4>

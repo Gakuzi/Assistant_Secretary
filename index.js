@@ -24,13 +24,14 @@ const dom = {
     // Main layout
     appContainer: document.querySelector('.app-container'),
     // Header
-    userProfileMenu: document.getElementById('user-profile-menu'),
+    authStatusContainer: document.getElementById('auth-status-container'),
     settingsButton: document.getElementById('settings-button'),
     // Chat
     chatView: document.getElementById('chat-view'),
     messageList: document.getElementById('message-list'),
     chatTextInput: document.getElementById('chat-text-input'),
     micButtonChat: document.getElementById('mic-button-chat'),
+    sendButtonChat: document.getElementById('send-button-chat'),
     cameraButtonChat: document.getElementById('camera-button-chat'),
     imageUploadInputChat: document.getElementById('image-upload-input-chat'),
     loadingIndicator: document.getElementById('loading-indicator'),
@@ -80,32 +81,48 @@ async function initializeApp() {
     setupEventListeners();
     const geminiApiKey = localStorage.getItem('geminiApiKey');
     const googleClientId = localStorage.getItem('googleClientId');
+    
+    document.getElementById('settings-gemini-api-key').value = geminiApiKey || '';
+    document.getElementById('settings-google-client-id').value = googleClientId || '';
+
 
     if (geminiApiKey) {
-        appState.ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        try {
+            appState.ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        } catch (error) {
+            console.error("Failed to initialize GoogleGenAI:", error);
+            localStorage.removeItem('geminiApiKey'); // Clear bad key
+            alert("Ошибка инициализации Gemini API. Проверьте ключ.");
+        }
     }
 
     if (googleClientId) {
         await initializeGapiClient(googleClientId);
+        const isSignedIn = appState.gapiInited && gapi.client.getToken() !== null;
+        updateUiForAuthState(isSignedIn);
+    } else {
+        updateUiForAuthState(false);
     }
-    
-    // Initial UI update based on keys and sign-in status
-    const isSignedIn = appState.gapiInited && gapi.client.getToken() !== null;
-    updateUiForAuthState(isSignedIn);
 }
 
 async function initializeGapiClient(clientId) {
-    await gapiReady;
-    await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"] });
-    appState.gapiInited = true;
-    
-    await gisReady;
-    appState.tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
-        callback: handleTokenResponse,
-    });
-    appState.gisInited = true;
+    try {
+        await gapiReady;
+        await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"] });
+        appState.gapiInited = true;
+
+        await gisReady;
+        appState.tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+            callback: handleTokenResponse,
+        });
+        appState.gisInited = true;
+    } catch (error) {
+        console.error("Google API initialization error:", error);
+        alert("Не удалось инициализировать Google API. Проверьте ваш Client ID.");
+        localStorage.removeItem('googleClientId');
+    }
 }
 
 // --- Authentication & UI Updates ---
@@ -122,7 +139,7 @@ function handleSignOutClick() {
     const token = gapi.client.getToken();
     if (token !== null) {
         google.accounts.oauth2.revoke(token.access_token, () => {
-            gapi.client.setToken('');
+            gapi.client.setToken(null);
             appState.chatHistory = [];
             dom.messageList.innerHTML = '';
             updateUiForAuthState(false);
@@ -133,7 +150,8 @@ function handleSignOutClick() {
 async function handleTokenResponse(response) {
     if (response.error) {
         console.error('Google token error:', response);
-        appendMessage('error', `Ошибка авторизации: ${response.error_description}`);
+        appendMessage('error', `Ошибка авторизации: ${response.error_description || 'Попробуйте еще раз.'}`);
+        updateUiForAuthState(false);
         return;
     }
     gapi.client.setToken(response);
@@ -149,40 +167,76 @@ async function updateUiForAuthState(isSignedIn) {
     const clientId = localStorage.getItem('googleClientId');
     const keysExist = geminiKey && clientId;
 
-    // Update Header Profile/Auth Button
-    dom.userProfileMenu.innerHTML = '';
+    // --- 1. Update Header: Auth Button / User Avatar ---
+    dom.authStatusContainer.innerHTML = '';
     if (isSignedIn) {
-        const profile = await gapi.client.request({ path: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json' });
-        const user = profile.result;
-        dom.userProfileMenu.innerHTML = `
-            <img src="${user.picture}" alt="${user.name}" class="user-avatar" id="user-avatar-button">
-        `;
-        // Simple dropdown for sign out
-        document.getElementById('user-avatar-button').addEventListener('click', () => {
-            const signOutButton = document.createElement('button');
-            signOutButton.className = 'action-button';
-            signOutButton.textContent = 'Выйти';
-            signOutButton.style.position = 'absolute';
-            signOutButton.style.top = '50px';
-            signOutButton.style.right = '0';
-            signOutButton.onclick = () => {
-                handleSignOutClick();
-                signOutButton.remove();
-            };
-            dom.userProfileMenu.appendChild(signOutButton);
-            setTimeout(() => signOutButton.remove(), 5000); // Auto-remove after 5s
-        });
+        try {
+            const profile = await gapi.client.request({ path: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json' });
+            const user = profile.result;
+            dom.authStatusContainer.innerHTML = `
+                <img src="${user.picture}" alt="Аватар пользователя" class="user-avatar" id="user-avatar-button">
+                <div class="dropdown-menu" id="user-dropdown">
+                  <button class="dropdown-item" id="sign-out-button-dropdown">
+                    <span class="material-symbols-outlined">logout</span>
+                    Выйти
+                  </button>
+                </div>
+            `;
+            document.getElementById('user-avatar-button').addEventListener('click', () => {
+                document.getElementById('user-dropdown').classList.toggle('show');
+            });
+            document.getElementById('sign-out-button-dropdown').addEventListener('click', handleSignOutClick);
+            
+            // Close dropdown if clicked outside
+            window.addEventListener('click', (e) => {
+                if (!dom.authStatusContainer.contains(e.target)) {
+                    document.getElementById('user-dropdown')?.classList.remove('show');
+                }
+            });
+
+        } catch (error) {
+            console.error("Failed to fetch user profile", error);
+            // Fallback to sign out button if profile fetch fails
+            handleSignOutClick(); 
+        }
     } else {
         const authButton = document.createElement('button');
         authButton.id = 'auth-button-header';
-        authButton.className = 'action-button primary';
-        authButton.innerHTML = `<span class="material-symbols-outlined">login</span> Войти`;
+        authButton.className = 'action-button';
+        authButton.innerHTML = `<span class="material-symbols-outlined">login</span> Войти через Google`;
         authButton.onclick = handleAuthClick;
-        authButton.style.display = keysExist ? 'inline-flex' : 'none';
-        dom.userProfileMenu.appendChild(authButton);
+        authButton.disabled = !keysExist;
+        authButton.title = keysExist ? 'Войти в аккаунт Google' : 'Сначала введите API ключи в настройках';
+        dom.authStatusContainer.appendChild(authButton);
+    }
+    
+    // --- 2. Update Settings Modal ---
+    dom.authContainerSettings.innerHTML = '';
+     if (isSignedIn) {
+        const profile = await gapi.client.request({ path: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json' });
+        const user = profile.result;
+        dom.authContainerSettings.innerHTML = `
+            <div class="settings-user-info">
+                <img src="${user.picture}" alt="Аватар пользователя">
+                <div class="settings-user-info-text">
+                    <strong>${user.name}</strong>
+                    <small>${user.email}</small>
+                </div>
+            </div>
+            <button id="sign-out-button-settings" class="action-button">Выйти</button>
+        `;
+        document.getElementById('sign-out-button-settings').addEventListener('click', handleSignOutClick);
+    } else if (keysExist) {
+        dom.authContainerSettings.innerHTML = `
+            <p>Войдите для доступа к календарю.</p>
+            <button id="sign-in-button-settings" class="action-button primary">Войти</button>
+        `;
+        document.getElementById('sign-in-button-settings').addEventListener('click', handleAuthClick);
+    } else {
+        dom.authContainerSettings.innerHTML = `<p>Введите и сохраните API-ключи, чтобы включить авторизацию Google.</p>`;
     }
 
-    // Update Main Content
+    // --- 3. Update Main Content Panes ---
     if (isSignedIn) {
         dom.welcomeScreen.style.display = 'none';
         dom.calendarLoginPrompt.style.display = 'none';
@@ -203,15 +257,6 @@ async function updateUiForAuthState(isSignedIn) {
             dom.welcomeSubheading.textContent = "Войдите в свой аккаунт Google, чтобы начать.";
             dom.calendarLoginPrompt.querySelector('p').textContent = "Войдите в аккаунт Google, чтобы увидеть ваш календарь.";
         }
-    }
-    
-    // Update Settings Modal
-    if (isSignedIn) {
-        dom.authContainerSettings.innerHTML = `<p>Вы вошли в аккаунт Google.</p>`;
-    } else {
-        dom.authContainerSettings.innerHTML = keysExist ? 
-            `<p>Для доступа к календарю войдите в аккаунт Google.</p>` :
-            `<p>Сначала сохраните ключи API, чтобы включить авторизацию.</p>`;
     }
 }
 
@@ -363,7 +408,8 @@ function createEventElement(event) {
 // --- Chat & Gemini ---
 
 async function sendMessage(text, images = []) {
-    if (!text && images.length === 0) return;
+    const textTrimmed = text.trim();
+    if (!textTrimmed && images.length === 0) return;
     if (!appState.ai) {
         appendMessage('error', 'Ключ Gemini API не настроен. Пожалуйста, добавьте его в настройках.');
         return;
@@ -373,15 +419,16 @@ async function sendMessage(text, images = []) {
     dom.welcomeScreen.style.opacity = '0';
     setTimeout(() => { dom.welcomeScreen.style.display = 'none'; }, 300);
 
-    const userMessage = { role: 'user', parts: [{ text }] };
+    const userMessage = { role: 'user', parts: [{ text: textTrimmed }] };
     if (images.length > 0) {
       userMessage.parts.push(...images.map(img => ({ inlineData: { mimeType: img.type, data: img.data } })));
     }
-    appendMessage('user', text);
+    appendMessage('user', textTrimmed);
     appState.chatHistory.push(userMessage);
     
     dom.chatTextInput.value = '';
-    dom.chatTextInput.style.height = 'auto';
+    // Manually trigger input event to reset button states and textarea height
+    dom.chatTextInput.dispatchEvent(new Event('input', { bubbles: true }));
 
 
     try {
@@ -485,6 +532,7 @@ function showLoading(isLoading) {
     dom.loadingIndicator.style.display = isLoading ? 'flex' : 'none';
     dom.chatTextInput.disabled = isLoading;
     dom.micButtonChat.disabled = isLoading;
+    dom.sendButtonChat.disabled = isLoading;
     dom.cameraButtonChat.disabled = isLoading;
 }
 
@@ -499,6 +547,8 @@ async function base64Encode(file) {
 
 // --- Event Listeners ---
 function setupEventListeners() {
+    dom.sendButtonChat.addEventListener('click', () => sendMessage(dom.chatTextInput.value));
+    
     dom.chatTextInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -510,6 +560,10 @@ function setupEventListeners() {
         const el = dom.chatTextInput;
         el.style.height = 'auto';
         el.style.height = (el.scrollHeight) + 'px';
+
+        const hasText = el.value.trim().length > 0;
+        dom.micButtonChat.style.display = hasText ? 'none' : 'flex';
+        dom.sendButtonChat.style.display = hasText ? 'flex' : 'none';
     });
 
 
@@ -522,6 +576,8 @@ function setupEventListeners() {
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             dom.chatTextInput.value = transcript;
+            // Manually trigger input to show send button
+            dom.chatTextInput.dispatchEvent(new Event('input', { bubbles: true }));
             sendMessage(transcript);
         };
     } else {
@@ -540,7 +596,10 @@ function setupEventListeners() {
 
     dom.suggestionChipsContainer.addEventListener('click', (e) => {
         if (e.target.classList.contains('suggestion-chip')) {
-            sendMessage(e.target.textContent);
+            const text = e.target.textContent;
+            dom.chatTextInput.value = text;
+            dom.chatTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+            sendMessage(text);
         }
     });
     
