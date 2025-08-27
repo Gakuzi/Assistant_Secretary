@@ -78,10 +78,11 @@ let recognition;
 
 /**
  * Initializes the GAPI client, loading necessary APIs and setting up the token client.
- * @returns {Promise<boolean>} - True if successful, false otherwise.
+ * Decouples GIS (auth) from GAPI (client) initialization to allow re-auth on GAPI failure.
+ * @returns {Promise<boolean>} - True if GAPI client was successful, false otherwise.
  */
 async function initializeGapiClient() {
-    // Reset state flags before attempting initialization
+    // Reset state flags
     gapiInited = false;
     gisInited = false;
     pickerApiLoaded = false;
@@ -90,6 +91,15 @@ async function initializeGapiClient() {
         await gapiReady;
         await gisReady;
 
+        // Initialize GIS/token client first. It's crucial for re-auth.
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: GOOGLE_CLIENT_ID,
+            scope: SCOPES,
+            callback: handleTokenResponse,
+        });
+        gisInited = true; // GIS is ready for auth attempts.
+
+        // Now initialize the rest of GAPI for API calls
         await new Promise((resolve, reject) => {
             gapi.load('client:picker', { callback: resolve, onerror: reject });
         });
@@ -100,44 +110,19 @@ async function initializeGapiClient() {
             discoveryDocs: DISCOVERY_DOCS,
             scope: SCOPES,
         });
-        gapiInited = true;
-
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID,
-            scope: SCOPES,
-            callback: handleTokenResponse,
-        });
-        gisInited = true;
+        gapiInited = true; // GAPI client is ready for API calls.
 
         const token = gapi.client.getToken();
         updateUiForAuthState(token !== null && token.access_token);
-        return true; // Success
+        return true; // Full success
 
     } catch (error) {
         console.error('Error initializing Google API client:', error);
-        let errorMessage = 'Не удалось инициализировать сервисы Google. ';
-        const errorDetails = error?.result?.error?.details?.[0] || {};
-
-        if (error.type === 'popup_closed_by_user') {
-            errorMessage += 'Окно авторизации было закрыто.';
-        } else if (errorDetails.error_subtype === 'invalid_request' || (error.details && error.details.includes("invalid origin"))) {
-            errorMessage = `Критическая ошибка конфигурации Google Client ID.
-            Похоже на ошибку конфигурации. Убедитесь, что адрес '${window.location.origin}' ТОЧНО указан в 'Authorized JavaScript origins' в вашей Google Cloud Console.
-            Подробности: ${error.details || 'invalid_request'}`;
-        } else {
-             errorMessage += `Details: ${error.details || 'Проверьте Client ID и настройки в Google Cloud Console.'}`;
-        }
+        // An error occurred (likely with gapi.client.init), but gisInited might still be true.
+        // gapiInited remains false because init failed.
         
-        // Don't show appendMessage error if it's the initial load, let the modal handle it.
-        if (dom.welcomeScreen.style.display !== 'none') {
-             // appendMessage('error', errorMessage); // This is now handled by updateUiForAuthState
-        }
-        
-        // Reset state and update UI to reflect failure
-        gapiInited = false;
-        gisInited = false;
-        pickerApiLoaded = false;
-        updateUiForAuthState(false);
+        // This will now correctly show the config error state but allow re-auth
+        updateUiForAuthState(false); 
         return false; // Failure
     }
 }
@@ -194,9 +179,9 @@ async function initializeApp() {
  * Handles the click event for the authorization button.
  */
 function handleAuthClick() {
-    if (!gapiInited || !gisInited) {
-        console.error("Auth button clicked before GAPI/GIS initialization.");
-        alert("Сервисы Google еще не загружены или произошла ошибка конфигурации. Проверьте ключи в настройках.");
+    if (!gisInited || !tokenClient) {
+        console.error("Auth button clicked before GIS token client initialization.");
+        alert("Сервисы аутентификации Google еще не загружены или произошла ошибка конфигурации. Проверьте ключи в настройках.");
         return;
     }
     tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -297,14 +282,16 @@ async function updateUiForAuthState(isSignedIn) {
         document.getElementById('sign-out-button').style.display = 'none';
 
         const keysExist = localStorage.getItem('googleClientId');
-        if (keysExist && gapiInited) { // Show login only if keys exist AND init was successful
+        // `gapiInited` checks if the API client (calendar etc) is ready.
+        // `gisInited` checks if the auth client is ready.
+        if (keysExist && gapiInited) { // Keys exist, all APIs ready -> show login.
             dom.welcomeSubheading.textContent = "Войдите в свой аккаунт Google, чтобы начать управлять календарем.";
             dom.suggestionChipsContainer.style.display = 'none';
             welcomeAuthContainer.style.display = 'block';
-        } else if (keysExist && !gapiInited) { // Keys exist, but init failed
+        } else if (keysExist && !gapiInited) { // Keys exist, but GAPI client failed (config error).
              dom.welcomeSubheading.textContent = "Ошибка конфигурации. Проверьте ключи в настройках.";
              dom.suggestionChipsContainer.style.display = 'none';
-             welcomeAuthContainer.style.display = 'none';
+             welcomeAuthContainer.style.display = 'block'; // Show auth button to allow retrying.
         } else { // No keys exist
             dom.welcomeSubheading.textContent = "Начните настройку, чтобы управлять календарем.";
             dom.suggestionChipsContainer.style.display = 'flex';
@@ -337,7 +324,9 @@ function displayAuthButtons() {
     containers.forEach(container => {
         if (container) {
             container.innerHTML = ''; // Clear previous buttons
-            if (gapiInited) { // Only show the button if GAPI successfully initialized
+            // Show auth button if GIS is ready, even if GAPI client failed.
+            // This allows the user to try signing in again.
+            if (gisInited) {
                 container.appendChild(createAuthButton());
             }
         }
