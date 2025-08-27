@@ -45,9 +45,9 @@
           <h2 id="welcome-greeting">Здравствуйте!</h2>
           <p id="welcome-subheading" class="welcome-subheading">Начните с ввода ключей API в настройках.</p>
           <div id="suggestion-chips-container" style="display: none;">
-            <button class="suggestion-chip">Создать встречу на завтра</button>
-            <button class="suggestion-chip">Запланировать звонок</button>
-            <button class="suggestion-chip">Какая погода?</button>
+            <button class="suggestion-chip">Создать встречу на завтра в 10 утра с Иваном для обсуждения проекта</button>
+            <button class="suggestion-chip">Какие у меня планы на эту пятницу?</button>
+            <button class="suggestion-chip">Напомни мне позвонить в сервис в 15:00</button>
           </div>
         </div>
 
@@ -57,21 +57,11 @@
         </div>
         
         <div class="chat-input-container">
-          <div id="chat-reply-context" style="display: none;">
-             <p id="chat-reply-context-text"></p>
-             <button id="chat-reply-context-close" aria-label="Отменить ответ">
-                 <span class="material-symbols-outlined">close</span>
-             </button>
-          </div>
           <div id="chat-input-bar">
             <div class="camera-button-container">
               <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
               </button>
-              <div id="camera-options-menu" class="camera-options-menu" style="display: none;">
-                <button id="take-photo-option" aria-label="Сделать фото">Сделать фото</button>
-                <button id="upload-photo-option" aria-label="Загрузить фото">Загрузить фото</button>
-              </div>
             </div>
             <input type="file" id="image-upload-input-chat" accept="image/*" style="display: none;">
             <textarea id="chat-text-input" placeholder="Спросите что-нибудь..." aria-label="Текстовый ввод для чата" rows="1"></textarea>
@@ -101,10 +91,6 @@
                               </button>
                           </div>
                       </div>
-                      <div class="calendar-selection">
-                          <label for="calendar-select" class="sr-only">Выбрать календарь</label>
-                          <select id="calendar-select"></select>
-                      </div>
                   </div>
                   <div class="calendar-grid" id="calendar-grid-weekdays"></div>
                   <div class="calendar-grid" id="calendar-grid-days"></div>
@@ -119,14 +105,6 @@
       </aside>
     </main>
   </div>
-  
-  <div id="camera-modal" class="modal" style="display:none;" aria-hidden="true">
-    <div class="modal-content">
-      <video id="camera-stream" width="320" height="240" autoplay playsinline aria-label="Видеопоток с камеры"></video>
-      <button id="capture-photo-button" class="action-button primary" aria-label="Сделать снимок">Сделать снимок</button>
-      <button id="cancel-camera-button" class="action-button" aria-label="Отменить съемку">Отмена</button>
-    </div>
-  </div>
 
   <div id="settings-modal" class="modal" style="display:none;" aria-hidden="true">
       <div class="modal-content settings-modal-content">
@@ -134,20 +112,13 @@
               <span class="material-symbols-outlined">close</span>
           </button>
           <h2>Настройки</h2>
-          <div id="settings-user-profile" style="display: none;">
-              <img id="settings-user-avatar" src="" alt="User Avatar">
-              <div id="settings-user-info">
-                  <span id="settings-user-name"></span>
-                  <span id="settings-user-email"></span>
-              </div>
-          </div>
+          
           <h4>Интеграция с Google</h4>
           <div id="auth-container-settings">
             <!-- Auth buttons will be dynamically added here for settings -->
           </div>
-          <button id="sign-out-button" class="action-button" style="display: none;">Выйти из аккаунта</button>
-
-          <h4>Управление API-ключами</h4>
+          
+          <h4 style="margin-top: 24px;">Управление API-ключами</h4>
           <div class="form-field">
             <label for="settings-gemini-api-key">Gemini API Key</label>
             <input type="password" id="settings-gemini-api-key" placeholder="Ваш Gemini API Key">
@@ -156,61 +127,10 @@
           <div class="form-field">
             <label for="settings-google-client-id">Google Client ID</label>
             <input type="password" id="settings-google-client-id" placeholder="Ваш Google Client ID">
-             <a href="#" class="open-client-id-instructions">Получить Client ID</a>
-          </div>
-          <button id="save-api-keys-button" class="action-button primary" style="width: 100%; justify-content: center; margin-top: 10px;">Сохранить ключи</button>
-      </div>
-  </div>
-
-  <div id="event-edit-modal" class="modal" aria-hidden="true">
-      <div class="modal-content">
-          <button id="close-event-edit-modal-button" class="icon-button close-modal-button" aria-label="Закрыть редактор событий">
-              <span class="material-symbols-outlined">close</span>
-          </button>
-          <h2>Редактировать событие</h2>
-          <input type="hidden" id="event-edit-id">
-          <div class="form-field">
-              <label for="event-edit-summary">Название</label>
-              <input type="text" id="event-edit-summary">
-          </div>
-          <div class="form-field-group">
-            <div class="form-field">
-                <label for="event-edit-start-date">Дата начала</label>
-                <input type="date" id="event-edit-start-date">
-            </div>
-            <div class="form-field">
-                <label for="event-edit-start-time">Время начала</label>
-                <input type="time" id="event-edit-start-time">
-            </div>
-          </div>
-           <div class="form-field-group">
-            <div class="form-field">
-                <label for="event-edit-end-date">Дата окончания</label>
-                <input type="date" id="event-edit-end-date">
-            </div>
-            <div class="form-field">
-                <label for="event-edit-end-time">Время окончания</label>
-                <input type="time" id="event-edit-end-time">
-            </div>
-          </div>
-          <div class="form-field">
-              <label for="event-edit-location">Место</label>
-              <input type="text" id="event-edit-location">
-          </div>
-          <div class="form-field">
-              <label for="event-edit-description">Описание</label>
-              <textarea id="event-edit-description" rows="3"></textarea>
-          </div>
-          <div class="form-field">
-              <label>Приложения</label>
-              <ul id="event-edit-attachments-list"></ul>
-              <button id="attach-from-drive-button" class="action-button">
-                  <span class="material-symbols-outlined">attach_file</span>
-                  Прикрепить с Диска
-              </button>
+             <a href="#" class="open-client-id-instructions">Как получить Client ID?</a>
           </div>
           <div class="modal-actions">
-              <button id="save-event-button" class="action-button primary">Сохранить</button>
+            <button id="save-api-keys-button" class="action-button primary">Сохранить ключи</button>
           </div>
       </div>
   </div>
@@ -221,92 +141,34 @@
         <span class="material-symbols-outlined">close</span>
       </button>
       <h2>Как получить Google Client ID</h2>
-      <p>Следуйте этим шагам, чтобы создать Client ID для доступа к сервисам Google.</p>
-      
       <div class="instructions-body">
         <ol>
-          <li>
-            <strong>Откройте Google Cloud Console.</strong>
-            <p>Нажмите на кнопку ниже, чтобы перейти в консоль. Если потребуется, войдите в свой аккаунт Google.</p>
-            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" class="action-button primary">
-              Перейти в Google Cloud Console
-              <span class="material-symbols-outlined">open_in_new</span>
-            </a>
+          <li><strong>Откройте Google Cloud Console.</strong>
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" class="action-button primary">Перейти в Google Cloud Console <span class="material-symbols-outlined">open_in_new</span></a>
           </li>
-          <li>
-            <strong>Создайте или выберите проект.</strong>
-            <p>В верхней части страницы нажмите на выпадающий список проектов и выберите существующий или создайте новый.</p>
-          </li>
-          <li>
-            <strong>Включите необходимые API.</strong>
-            <p>Перейдите в <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noopener noreferrer">"Библиотеку API"</a>, найдите и включите (нажмите "Enable") **каждый** из следующих API:</p>
-            <ul>
-                <li><strong>Google Calendar API</strong></li>
-                <li><strong>People API</strong></li>
-                <li><strong>Google Tasks API</strong></li>
-                <li><strong>Google Docs API</strong></li>
-            </ul>
-          </li>
-          <li>
-            <strong>Настройте экран согласия OAuth.</strong>
-            <p>Перейдите в <strong>"OAuth consent screen"</strong>.
-              <br>- Выберите тип <strong>"External"</strong> и нажмите "Create".
-              <br>- Введите название приложения (например, "Календарь-Ассистент"), ваш email, и нажмите <strong>"Save and Continue"</strong> до конца.
-              <br>- Вернитесь на страницу OAuth consent screen и нажмите <strong>"Publish App"</strong>.
+          <li><strong>Создайте или выберите проект.</strong></li>
+          <li><strong>Включите API.</strong> В "Библиотеке API" найдите и включите <strong>Google Calendar API</strong>.</li>
+          <li><strong>Настройте экран согласия OAuth.</strong> Выберите "External", введите название, email, и нажмите "Publish App".</li>
+          <li><strong>Создайте учетные данные.</strong> Нажмите "+ CREATE CREDENTIALS" и выберите "OAuth client ID".</li>
+          <li><strong>Настройте Client ID.</strong>
+            <p>- Тип приложения: <strong>"Web application"</strong>.
+            <br>- В "Authorized JavaScript origins", нажмите "+ ADD URI" и вставьте:
+            <br><code>${window.location.origin}</code>
+            <br>- В "Authorized redirect URIs", нажмите "+ ADD URI" и вставьте то же самое:
+            <br><code>${window.location.origin}</code>
             </p>
           </li>
-          <li>
-            <strong>Создайте учетные данные.</strong>
-            <p>Перейдите в <strong>"Credentials"</strong>, нажмите <strong>"+ CREATE CREDENTIALS"</strong> и выберите <strong>"OAuth client ID"</strong>.</p>
-          </li>
-          <li>
-            <strong>Настройте Client ID.</strong>
-            <p>Это самый важный шаг. Убедитесь, что все адреса скопированы точно.</p>
-            <p>- В "Application type" выберите <strong>"Web application"</strong>.
-            <br>- В разделе <strong>"Authorized JavaScript origins"</strong>, нажмите "+ ADD URI" и вставьте следующий адрес:</p>
-            <div class="uri-container">
-              <code id="instructions-js-origin"></code>
-              <button class="copy-uri-button" data-target="instructions-js-origin" aria-label="Скопировать URI">
-                  <span class="material-symbols-outlined">content_copy</span>
-              </button>
-            </div>
-            
-            <p>- В разделе <strong>"Authorized redirect URIs"</strong>, нажмите "+ ADD URI" и вставьте тот же самый адрес:</p>
-            <div class="uri-container">
-                <code id="instructions-redirect-uri"></code>
-                <button class="copy-uri-button" data-target="instructions-redirect-uri" aria-label="Скопировать URI перенаправления">
-                    <span class="material-symbols-outlined">content_copy</span>
-                </button>
-            </div>
-            
-            <p>- Нажмите кнопку <strong>"CREATE"</strong>.</p>
-          </li>
-           <li>
-            <strong>Скопируйте ваш Client ID.</strong>
-            <p>В появившемся окне вы увидите ваш <strong>Client ID</strong>. Скопируйте его и вставьте в поле в нашем приложении.</p>
-          </li>
+           <li><strong>Скопируйте ваш Client ID.</strong></li>
         </ol>
-
-        <div class="instructions-troubleshooting">
-            <div class="troubleshooting-header">
-                <span class="material-symbols-outlined">report_problem</span>
-                <h4>Решение проблем: Ошибка 400: invalid_request</h4>
-            </div>
-            <p>Эта ошибка почти всегда означает, что URI в настройках Google не совпадают с адресом вашего приложения. Убедитесь, что вы **в точности скопировали** адреса из шага 6 с помощью кнопок "Копировать". Не добавляйте никаких лишних символов, вроде `/` в конце.</p>
-        </div>
-
       </div>
     </div>
   </div>
 
-
-  <!-- Create global callbacks that dispatch events for the module to hear -->
   <script>
     function onGapiLoad() { window.gapiLoadedCallback && window.gapiLoadedCallback(); }
     function onGisLoad() { window.gisInitalisedCallback && window.gisInitalisedCallback(); }
   </script>
   
-  <!-- Statically load Google API scripts. The onload callbacks will trigger initialization. -->
   <script async defer src="https://apis.google.com/js/api.js" onload="onGapiLoad()"></script>
   <script async defer src="https://accounts.google.com/gsi/client" onload="onGisLoad()"></script>
   

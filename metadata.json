@@ -3,7 +3,6 @@
   "description": "Приложение для управления событиями календаря с помощью Gemini, поддерживающее текстовый, голосовой и графический ввод.",
   "requestFramePermissions": [
     "camera",
-    "microphone",
-    "geolocation"
+    "microphone"
   ]
 }
