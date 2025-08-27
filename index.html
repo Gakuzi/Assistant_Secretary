@@ -89,13 +89,16 @@
           <div id="calendar-view-container" style="display: none;">
               <div id="calendar-container">
                   <div class="calendar-header">
-                      <button id="prev-month-button" class="icon-button" aria-label="Предыдущий месяц">
-                          <span class="material-symbols-outlined">chevron_left</span>
-                      </button>
                       <h2 id="current-month-year"></h2>
-                      <button id="next-month-button" class="icon-button" aria-label="Следующий месяц">
-                          <span class="material-symbols-outlined">chevron_right</span>
-                      </button>
+                      <div class="calendar-controls">
+                        <button id="prev-month-button" class="icon-button" aria-label="Предыдущий месяц">
+                            <span class="material-symbols-outlined">chevron_left</span>
+                        </button>
+                        <button id="today-button" class="action-button">Сегодня</button>
+                        <button id="next-month-button" class="icon-button" aria-label="Следующий месяц">
+                            <span class="material-symbols-outlined">chevron_right</span>
+                        </button>
+                      </div>
                   </div>
                   <div class="calendar-grid" id="calendar-grid-weekdays"></div>
                   <div class="calendar-grid" id="calendar-grid-days"></div>

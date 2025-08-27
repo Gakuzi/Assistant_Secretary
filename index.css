@@ -445,6 +445,23 @@ body {
     align-items: center;
     margin-bottom: 16px;
 }
+.calendar-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.calendar-controls .action-button {
+    padding: 6px 12px;
+    font-size: 0.9em;
+    margin: 0;
+    border-radius: var(--border-radius-sm);
+    background-color: var(--surface-color);
+    color: var(--text-color-primary);
+    border: 1px solid var(--border-color);
+}
+.calendar-controls .action-button:hover {
+    background-color: var(--light-gray-background);
+}
 #current-month-year {
     font-size: 1.1em;
     font-weight: 500;

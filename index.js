@@ -60,6 +60,7 @@ const dom = {
     calendarViewContainer: document.getElementById('calendar-view-container'),
     prevMonthButton: document.getElementById('prev-month-button'),
     nextMonthButton: document.getElementById('next-month-button'),
+    todayButton: document.getElementById('today-button'),
     currentMonthYear: document.getElementById('current-month-year'),
     calendarGridWeekdays: document.getElementById('calendar-grid-weekdays'),
     calendarGridDays: document.getElementById('calendar-grid-days'),
@@ -1015,6 +1016,10 @@ function setupEventListeners() {
     });
     dom.nextMonthButton.addEventListener('click', () => {
         currentDisplayedDate.setMonth(currentDisplayedDate.getMonth() + 1);
+        renderCalendar(currentDisplayedDate);
+    });
+    dom.todayButton.addEventListener('click', () => {
+        currentDisplayedDate = new Date();
         renderCalendar(currentDisplayedDate);
     });
     
