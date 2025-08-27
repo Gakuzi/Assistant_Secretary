@@ -258,8 +258,8 @@ body {
   border-bottom-left-radius: 4px;
 }
 .system-bubble {
-  background-color: var(--system-message-background); color: var(--text-color-secondary);
-  font-style: italic; font-size: 0.9em; width: 100%; text-align: center;
+  background-color: var(--system-message-background); color: var(--text-color-primary);
+  font-size: 0.9em; width: 100%; text-align: center;
   border-radius: var(--border-radius-sm);
   padding: 8px 12px;
 }
@@ -619,33 +619,6 @@ body {
     justify-content: flex-end;
     margin-top: 24px;
 }
-
-/* --- Instructions Modal --- */
-.instructions-modal-content {
-    max-width: 700px;
-}
-.instructions-body ol {
-    padding-left: 20px;
-}
-.instructions-body li {
-    margin-bottom: 16px;
-    line-height: 1.6;
-}
-.instructions-body code {
-    background-color: var(--light-gray-background);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: 'Courier New', Courier, monospace;
-    word-break: break-all;
-}
-.instructions-body .action-button {
-    margin-top: 8px;
-}
-.instructions-body .material-symbols-outlined {
-    font-size: 16px;
-    vertical-align: text-bottom;
-}
-
 
 /* --- Mobile & Responsive Design --- */
 .mobile-tab-bar {

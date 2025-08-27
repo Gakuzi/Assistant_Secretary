@@ -40,8 +40,8 @@
         </div>
 
         <div id="welcome-screen">
-          <h2 id="welcome-greeting">Здравствуйте!</h2>
-          <p id="welcome-subheading" class="welcome-subheading">Начните с ввода ключей API в настройках.</p>
+          <h2 id="welcome-greeting">Ваш личный ассистент</h2>
+          <p id="welcome-subheading" class="welcome-subheading">Для начала работы введите Gemini API Key в настройках.</p>
           <div id="suggestion-chips-container" style="display: none;">
             <button class="suggestion-chip">Создать встречу на завтра в 10 утра с Иваном для обсуждения проекта</button>
             <button class="suggestion-chip">Какие у меня планы на эту пятницу?</button>
@@ -51,7 +51,7 @@
 
         <div id="loading-indicator" style="display: none;" aria-label="Загрузка">
           <div class="spinner"></div>
-          <span>Обработка...</span>
+          <span>Выполняю...</span>
         </div>
         
         <div class="chat-input-container">
@@ -129,50 +129,17 @@
              <!-- Auth status and controls will be dynamically added here -->
           </div>
           
-          <h4 style="margin-top: 24px;">Управление API-ключами</h4>
+          <h4 style="margin-top: 24px;">Ключ API</h4>
           <div class="form-field">
             <label for="settings-gemini-api-key">Gemini API Key</label>
-            <input type="password" id="settings-gemini-api-key" placeholder="Ваш Gemini API Key">
+            <input type="password" id="settings-gemini-api-key" placeholder="Вставьте ваш Gemini API Key">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить API Key</a>
           </div>
-          <div class="form-field">
-            <label for="settings-google-client-id">Google Client ID</label>
-            <input type="password" id="settings-google-client-id" placeholder="Ваш Google Client ID">
-             <a href="#" class="open-client-id-instructions">Как получить Client ID?</a>
-          </div>
+
           <div class="modal-actions">
-            <button id="save-api-keys-button" class="action-button primary">Сохранить</button>
+            <button id="save-api-keys-button" class="action-button primary">Сохранить и перезагрузить</button>
           </div>
       </div>
-  </div>
-  
-  <div id="google-client-id-instructions-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="instructions-title" style="display:none;">
-    <div class="modal-content instructions-modal-content">
-      <button id="close-instructions-button" class="icon-button close-modal-button" aria-label="Закрыть инструкцию">
-        <span class="material-symbols-outlined">close</span>
-      </button>
-      <h2 id="instructions-title">Как получить Google Client ID</h2>
-      <div class="instructions-body">
-        <ol>
-          <li><strong>Откройте Google Cloud Console.</strong>
-            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" class="action-button primary">Перейти в Google Cloud Console <span class="material-symbols-outlined">open_in_new</span></a>
-          </li>
-          <li><strong>Создайте или выберите проект.</strong></li>
-          <li><strong>Включите API.</strong> В "Библиотеке API" найдите и включите <strong>Google Calendar API</strong>.</li>
-          <li><strong>Настройте экран согласия OAuth.</strong> Выберите "External", введите название, email, и нажмите "Publish App".</li>
-          <li><strong>Создайте учетные данные.</strong> Нажмите "+ CREATE CREDENTIALS" и выберите "OAuth client ID".</li>
-          <li><strong>Настройте Client ID.</strong>
-            <p>- Тип приложения: <strong>"Web application"</strong>.
-            <br>- В "Authorized JavaScript origins", нажмите "+ ADD URI" и вставьте:
-            <br><code>${window.location.origin}</code>
-            <br>- В "Authorized redirect URIs", нажмите "+ ADD URI" и вставьте то же самое:
-            <br><code>${window.location.origin}</code>
-            </p>
-          </li>
-           <li><strong>Скопируйте ваш Client ID.</strong></li>
-        </ol>
-      </div>
-    </div>
   </div>
 
   <script>
