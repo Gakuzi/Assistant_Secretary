@@ -13,9 +13,11 @@ let GOOGLE_CLIENT_ID = null;
 
 const DISCOVERY_DOCS = [
     "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
-    "https://www.googleapis.com/discovery/v1/apis/people/v1/rest"
+    "https://www.googleapis.com/discovery/v1/apis/people/v1/rest",
+    "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest",
+    "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest"
 ];
-const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/drive.readonly";
+const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/documents";
 
 let tokenClient;
 let gapiInited = false;
@@ -1036,38 +1038,37 @@ async function handleUserInput(text, conflicts = []) {
 
   const currentDate = new Date().toISOString();
   
-  const systemInstruction = `Вы — ИИ-ассистент-секретарь для управления Google Календарем. Ваша задача — проактивно помогать пользователю, анализируя контекст и управляя событиями.
+  const systemInstruction = `Вы — ИИ-ассистент-секретарь для управления Google Календарем, Задачами и Документами. Ваша задача — проактивно помогать пользователю, анализируя его запросы и управляя его рабочим процессом.
 
 - Текущая дата и время: ${currentDate}.
 - Всегда отвечайте в формате JSON.
 
 **Основная Логика и Приоритеты:**
 
-1.  **Приоритет 1: Участники (Attendees):**
-    - Если в запросе есть имена людей ('с Анной'), но нет их email, **всегда используйте \`"action": "REQUEST_CONTACTS"\` в первую очередь.**
-    - В поле \`contactNames\` передайте массив имен для поиска (например, \`["Анна"]\`).
-    - В \`followUpQuestion\` напишите сообщение для пользователя (например, "Уточните, кого пригласить").
-    - **Не добавляйте имена в \`attendees\` без email!**
+1.  **Определите намерение: Событие или Задача?**
+    - **Событие:** Если есть конкретное время, длительность, участники, место. Ключевые слова: 'встреча', 'звонок', 'созвон', 'ужин', 'прием у врача'.
+    - **Задача:** Если это дело, которое нужно выполнить, возможно к дате. Ключевые слова: 'задача', 'напомни', 'нужно сделать', 'купить', 'подготовить отчет'.
+    - Если сомневаетесь, задайте уточняющий вопрос через \`"action": "GENERAL_QUERY"\`.
 
-2.  **Приоритет 2: Документы и Файлы:**
-    - **После** того как все участники определены, проверьте запрос на слова 'отчет', 'документ', 'презентация'.
-    - Если такие слова есть и в \`description\` текущего черновика события еще нет ссылки на файл, предложите его добавить.
-    - Используйте \`"action": "GENERAL_QUERY"\`, задайте \`followUpQuestion\` (например, "Хотите прикрепить отчет с Google Диска?") и добавьте \`"suggestion": "ADD_DRIVE_FILE"\`.
+2.  **Если это СОБЫТИЕ (CREATE_EVENT / EDIT_EVENT):**
+    - **Приоритет 1: Участники (Attendees):** Если в запросе есть имена, но нет email, **всегда** используйте \`"action": "REQUEST_CONTACTS"\` в первую очередь.
+    - **Приоритет 2: Документы и Файлы:** **После** определения участников, проверьте, не упоминаются ли 'документы', 'отчеты'. Если да, предложите прикрепить файл с Google Диска через \`"suggestion": "ADD_DRIVE_FILE"\`.
+    - **Приоритет 3: Конфликты:** Если в запросе есть \`conflictingEvents\`, сообщите о них.
+    - **Приоритет 4: Финальное Подтверждение:** Когда все готово, запросите подтверждение на создание/изменение события.
+    - **Приоритет 5 (После создания):** После успешного создания встречи, **предложите создать документ для заметок**, используя \`"action": "GENERAL_QUERY"\` и \`"suggestion": "CREATE_MEETING_NOTES"\`.
 
-3.  **Приоритет 3: Конфликты:**
-    - В запросе от пользователя может быть поле \`conflictingEvents\`. Если оно не пустое, сообщите о конфликте и предложите варианты в \`followUpQuestion\`.
-
-4.  **Приоритет 4: Финальное Подтверждение:**
-    - **Только когда** все участники определены, вопрос о документах решен и конфликтов нет, используйте \`action\`: \`CREATE_EVENT\` или \`EDIT_EVENT\`.
-    - Предоставьте полный и готовый объект события для финального подтверждения пользователя.
+3.  **Если это ЗАДАЧА (CREATE_TASK):**
+    - Определите название задачи (\`title\`) и, если есть, дату выполнения (\`due\`).
+    - Используйте \`"action": "CREATE_TASK"\` и передайте объект задачи.
+    - Подтвердите создание задачи в \`generalResponse\`.
 
 **Прочие правила:**
-- **Контекст:** Если запрос начинается с "Контекст: ...", используйте его для уточнения действия (например, редактирования существующего события).
-- **Видеовстречи:** Если упоминается 'звонок', 'созвон', 'онлайн', автоматически добавляйте видеовстречу: \`"conferenceData": { "createRequest": { "requestId": "..." } }\`.
-- **Время:** Если \`end.dateTime\` отсутствует, событие должно длиться 1 час.
-- **Календарь:** Анализируйте запрос и выбирайте наиболее подходящий \`calendarId\` из списка. По умолчанию 'primary'.
+- **Контекст:** Используйте поле "Текущий контекст" для редактирования.
+- **Видеовстречи:** Автоматически добавляйте для 'звонков' и 'созвонов'.
+- **Время:** Событие по умолчанию длится 1 час.
 
-**Actions:** \`CREATE_EVENT\`, \`EDIT_EVENT\`, \`LIST_EVENTS\`, \`GENERAL_QUERY\`, \`REQUEST_CONTACTS\`.`;
+**Actions:** \`CREATE_EVENT\`, \`EDIT_EVENT\`, \`CREATE_TASK\`, \`LIST_EVENTS\`, \`GENERAL_QUERY\`, \`REQUEST_CONTACTS\`.
+**Suggestions:** \`ADD_DRIVE_FILE\`, \`CREATE_MEETING_NOTES\`.`;
 
   const userPrompt = `
     Доступные календари: ${JSON.stringify(userCalendars.map(c => ({id: c.id, summary: c.summary})))}
@@ -1189,202 +1190,198 @@ function closeCameraModal() {
 }
 
 // --- App Initialization & Event Listeners ---
-document.addEventListener('DOMContentLoaded', () => {
-    
-    // Listen for the Google API scripts to load before trying to use them.
-    document.addEventListener('gapiLoaded', () => gapi.load('client', initializeGapiClient));
-    document.addEventListener('gisInitalised', initializeApiClients);
 
-    // Check if API keys are present. If not, start the onboarding flow.
-    // The actual API client initialization will be triggered by the event listeners above
-    // once the necessary Google scripts are loaded, preventing a race condition.
-    if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
-        setupOnboarding();
+// Listen for the Google API scripts to load before trying to use them.
+document.addEventListener('gapiLoaded', () => gapi.load('client', initializeGapiClient));
+document.addEventListener('gisInitalised', initializeApiClients);
+
+// Check if API keys are present. If not, start the onboarding flow.
+if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
+    setupOnboarding();
+}
+
+selectedDate.setHours(0, 0, 0, 0);
+
+settingsButton.addEventListener('click', (e) => {
+    lastFocusedElement = e.currentTarget;
+    openSettingsModal();
+});
+closeSettingsButton.addEventListener('click', closeSettingsModal);
+
+chatTextInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleUserInput(chatTextInput.value);
     }
-    
-    selectedDate.setHours(0, 0, 0, 0);
+});
 
-    settingsButton.addEventListener('click', (e) => {
-        lastFocusedElement = e.currentTarget;
-        openSettingsModal();
-    });
-    closeSettingsButton.addEventListener('click', closeSettingsModal);
+micButtonChat.addEventListener('click', () => {
+    if (isRecognizingSpeech) {
+        recognition.stop();
+    } else {
+        setLoading(true);
+        recognition.start();
+    }
+});
 
-    chatTextInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleUserInput(chatTextInput.value);
+signOutButton.addEventListener('click', handleSignOutClick);
+
+saveApiKeysButton.addEventListener('click', () => {
+    const googleId = settingsGoogleClientIdInput.value.trim();
+    const geminiKey = settingsGeminiApiKeyInput.value.trim();
+
+    if (!googleId || !geminiKey) {
+        alert('Пожалуйста, введите оба ключа: Google Client ID и Gemini API Key.');
+        return;
+    }
+
+    localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
+    localStorage.setItem('GEMINI_API_KEY', geminiKey);
+    initializeApiClients();
+    appendMessage('Ключи API сохранены.', 'system');
+    closeSettingsModal();
+});
+
+cameraButtonChat.addEventListener('click', () => {
+    isCameraOptionsOpen = !isCameraOptionsOpen;
+    cameraOptionsMenu.style.display = isCameraOptionsOpen ? 'block' : 'none';
+});
+
+takePhotoOption.addEventListener('click', () => {
+    isCameraOptionsOpen = false;
+    cameraOptionsMenu.style.display = 'none';
+    openCameraModal();
+});
+
+uploadPhotoOption.addEventListener('click', () => {
+    isCameraOptionsOpen = false;
+    cameraOptionsMenu.style.display = 'none';
+    imageUploadInputChat.click();
+});
+
+capturePhotoButton.addEventListener('click', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = cameraStreamElement.videoWidth;
+    canvas.height = cameraStreamElement.videoHeight;
+    canvas.getContext('2d')?.drawImage(cameraStreamElement, 0, 0);
+    imageBase64DataForNextSend = canvas.toDataURL('image/jpeg').split(',')[1];
+    appendMessage('Фотография сделана. Теперь опишите, что вы хотите сделать.', 'system');
+    closeCameraModal();
+});
+
+cancelCameraButton.addEventListener('click', closeCameraModal);
+
+imageUploadInputChat.addEventListener('change', (event) => {
+    const target = event.target;
+    const file = target.files?.[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = (reader.result).split(',')[1];
+            imageBase64DataForNextSend = base64String;
+            appendMessage('Изображение загружено. Теперь опишите, что вы хотите сделать.', 'system');
+        };
+        reader.readDataURL(file);
+    }
+});
+
+openInstructionsLinks.forEach(link => link.addEventListener('click', (e) => {
+    lastFocusedElement = e.currentTarget;
+    openInstructionsModal(e);
+}));
+closeInstructionsButton.addEventListener('click', closeInstructionsModal);
+
+document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal(modal);
         }
     });
+});
 
-    micButtonChat.addEventListener('click', () => {
-        if (isRecognizingSpeech) {
-            recognition.stop();
-        } else {
-            setLoading(true);
-            recognition.start();
-        }
-    });
-    
-    signOutButton.addEventListener('click', handleSignOutClick);
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal.visible').forEach(closeModal);
+    }
+});
 
-    saveApiKeysButton.addEventListener('click', () => {
-        const googleId = settingsGoogleClientIdInput.value.trim();
-        const geminiKey = settingsGeminiApiKeyInput.value.trim();
+// New Calendar Panel Listeners
+prevMonthButton.addEventListener('click', () => {
+    currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+    renderMonthCalendar();
+});
+nextMonthButton.addEventListener('click', () => {
+    currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+    renderMonthCalendar();
+});
+calendarGridDays.addEventListener('click', (e) => {
+    const target = e.target.closest('.day-cell');
+    if (target && !target.classList.contains('other-month')) {
+        displayEventsForDate(new Date(target.dataset.date + 'T00:00:00'));
+    }
+});
+dailyEventsList.addEventListener('click', (e) => {
+    const eventItem = e.target.closest('.event-item');
+    if (!eventItem) return;
 
-        if (!googleId || !geminiKey) {
-            alert('Пожалуйста, введите оба ключа: Google Client ID и Gemini API Key.');
-            return;
-        }
+    // If an action link was clicked, let the browser handle it
+    if (e.target.closest('a.event-action-button')) {
+        return;
+    }
 
-        localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
-        localStorage.setItem('GEMINI_API_KEY', geminiKey);
-        initializeApiClients();
-        appendMessage('Ключи API сохранены.', 'system');
-        closeSettingsModal();
-    });
-    
-    cameraButtonChat.addEventListener('click', () => {
-        isCameraOptionsOpen = !isCameraOptionsOpen;
-        cameraOptionsMenu.style.display = isCameraOptionsOpen ? 'block' : 'none';
-    });
+    // If the edit button or any other part of the item is clicked, trigger edit
+    handleEditEventStart(eventItem.dataset.calendarId, eventItem.dataset.eventId);
+});
 
-    takePhotoOption.addEventListener('click', () => {
-        isCameraOptionsOpen = false;
-        cameraOptionsMenu.style.display = 'none';
-        openCameraModal();
-    });
+// Reply listeners
+messageList.addEventListener('click', (e) => {
+    const replyButton = e.target.closest('.message-reply-button');
+    if (replyButton) {
+        const messageBubble = replyButton.parentElement.querySelector('.message-bubble');
+        replyContext = messageBubble.dataset.rawText;
+        chatReplyContextText.textContent = replyContext;
+        chatReplyContext.style.display = 'flex';
+        chatTextInput.focus();
+    }
+});
+chatReplyContextClose.addEventListener('click', () => {
+    replyContext = '';
+    chatReplyContext.style.display = 'none';
+});
 
-    uploadPhotoOption.addEventListener('click', () => {
-        isCameraOptionsOpen = false;
-        cameraOptionsMenu.style.display = 'none';
-        imageUploadInputChat.click();
-    });
+suggestionChipsContainer.addEventListener('click', (e) => {
+    const target = e.target;
+    if (target.classList.contains('suggestion-chip') && target.textContent) {
+        handleUserInput(target.textContent);
+    }
+});
 
-    capturePhotoButton.addEventListener('click', () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = cameraStreamElement.videoWidth;
-        canvas.height = cameraStreamElement.videoHeight;
-        canvas.getContext('2d')?.drawImage(cameraStreamElement, 0, 0);
-        imageBase64DataForNextSend = canvas.toDataURL('image/jpeg').split(',')[1];
-        appendMessage('Фотография сделана. Теперь опишите, что вы хотите сделать.', 'system');
-        closeCameraModal();
-    });
+instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
+    button.addEventListener('click', async (e) => {
+        const currentButton = e.currentTarget;
+        const targetId = currentButton.dataset.target;
+        if (!targetId) return;
 
-    cancelCameraButton.addEventListener('click', closeCameraModal);
-    
-    imageUploadInputChat.addEventListener('change', (event) => {
-        const target = event.target;
-        const file = target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64String = (reader.result).split(',')[1];
-                imageBase64DataForNextSend = base64String;
-                appendMessage('Изображение загружено. Теперь опишите, что вы хотите сделать.', 'system');
-            };
-            reader.readAsDataURL(file);
-        }
-    });
-    
-    openInstructionsLinks.forEach(link => link.addEventListener('click', (e) => {
-        lastFocusedElement = e.currentTarget;
-        openInstructionsModal(e);
-    }));
-    closeInstructionsButton.addEventListener('click', closeInstructionsModal);
-    
-    document.querySelectorAll('.modal').forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeModal(modal);
+        const targetElement = document.getElementById(targetId);
+        if (!targetElement?.textContent) return;
+
+        try {
+            await navigator.clipboard.writeText(targetElement.textContent);
+            
+            const icon = currentButton.querySelector('.material-symbols-outlined');
+            if (icon) {
+                const originalIcon = icon.textContent;
+                currentButton.classList.add('copied');
+                icon.textContent = 'check';
+
+                setTimeout(() => {
+                    currentButton.classList.remove('copied');
+                    icon.textContent = originalIcon;
+                }, 2000);
             }
-        });
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            document.querySelectorAll('.modal.visible').forEach(closeModal);
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+            alert('Не удалось скопировать URI.');
         }
-    });
-
-    // New Calendar Panel Listeners
-    prevMonthButton.addEventListener('click', () => {
-        currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
-        renderMonthCalendar();
-    });
-    nextMonthButton.addEventListener('click', () => {
-        currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
-        renderMonthCalendar();
-    });
-    calendarGridDays.addEventListener('click', (e) => {
-        const target = e.target.closest('.day-cell');
-        if (target && !target.classList.contains('other-month')) {
-            displayEventsForDate(new Date(target.dataset.date + 'T00:00:00'));
-        }
-    });
-    dailyEventsList.addEventListener('click', (e) => {
-        const eventItem = e.target.closest('.event-item');
-        if (!eventItem) return;
-
-        // If an action link was clicked, let the browser handle it
-        if (e.target.closest('a.event-action-button')) {
-            return;
-        }
-
-        // If the edit button or any other part of the item is clicked, trigger edit
-        handleEditEventStart(eventItem.dataset.calendarId, eventItem.dataset.eventId);
-    });
-
-    // Reply listeners
-    messageList.addEventListener('click', (e) => {
-        const replyButton = e.target.closest('.message-reply-button');
-        if (replyButton) {
-            const messageBubble = replyButton.parentElement.querySelector('.message-bubble');
-            replyContext = messageBubble.dataset.rawText;
-            chatReplyContextText.textContent = replyContext;
-            chatReplyContext.style.display = 'flex';
-            chatTextInput.focus();
-        }
-    });
-    chatReplyContextClose.addEventListener('click', () => {
-        replyContext = '';
-        chatReplyContext.style.display = 'none';
-    });
-
-    suggestionChipsContainer.addEventListener('click', (e) => {
-        const target = e.target;
-        if (target.classList.contains('suggestion-chip') && target.textContent) {
-            handleUserInput(target.textContent);
-        }
-    });
-
-    instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
-        button.addEventListener('click', async (e) => {
-            const currentButton = e.currentTarget;
-            const targetId = currentButton.dataset.target;
-            if (!targetId) return;
-
-            const targetElement = document.getElementById(targetId);
-            if (!targetElement?.textContent) return;
-
-            try {
-                await navigator.clipboard.writeText(targetElement.textContent);
-                
-                const icon = currentButton.querySelector('.material-symbols-outlined');
-                if (icon) {
-                    const originalIcon = icon.textContent;
-                    currentButton.classList.add('copied');
-                    icon.textContent = 'check';
-
-                    setTimeout(() => {
-                        currentButton.classList.remove('copied');
-                        icon.textContent = originalIcon;
-                    }, 2000);
-                }
-            } catch (err) {
-                console.error('Failed to copy text: ', err);
-                alert('Не удалось скопировать URI.');
-            }
-        });
     });
 });
