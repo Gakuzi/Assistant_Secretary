@@ -13,8 +13,11 @@ import { marked } from 'marked';
 let ai = null; // Will be initialized after reading from localStorage
 let GOOGLE_CLIENT_ID = null;
 
-const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
-const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
+const DISCOVERY_DOCS = [
+    "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+    "https://www.googleapis.com/discovery/v1/apis/people/v1/rest"
+];
+const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly";
 
 let tokenClient;
 let gapiInited = false;
@@ -373,7 +376,7 @@ async function listUpcomingEvents() {
       
       const attendeesHtml = (event.attendees || [])
         .filter(att => !att.resource)
-        .map(att => `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(att.email)}&background=random&size=24&rounded=true" title="${att.email}" alt="Аватар ${att.email}" class="attendee-avatar">`)
+        .map(att => `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(att.displayName || att.email)}&background=random&size=24&rounded=true" title="${att.displayName || att.email}" alt="Аватар ${att.displayName || att.email}" class="attendee-avatar">`)
         .join('');
       
       const calendarColor = event.calendar.color || '#039be5';
@@ -423,7 +426,7 @@ async function createCalendarEvent(eventData) {
   }
   try {
     const calendarId = eventData.calendarId || 'primary';
-    delete eventData.calendarId; // Don't send this property in the resource
+    delete eventData.calendarId;
 
     const requestPayload = {
       'calendarId': calendarId,
@@ -436,11 +439,7 @@ async function createCalendarEvent(eventData) {
 
     const response = await gapi.client.calendar.events.insert(requestPayload);
     console.log('Event created: ', response.result);
-    let successMessage = `Событие **"${response.result.summary}"** успешно создано!`;
-    if (response.result.hangoutLink) {
-        successMessage += `\n[Присоединиться к видеовстрече](${response.result.hangoutLink})`;
-    }
-    appendMessage(successMessage, 'system');
+    appendMessage(`Событие **"${response.result.summary}"** успешно создано!`, 'ai', 'event_card', response.result);
     await listUpcomingEvents();
     return response.result;
   } catch (err) {
@@ -469,7 +468,7 @@ async function updateCalendarEvent(calendarId, eventId, eventData) {
 
       const response = await gapi.client.calendar.events.patch(requestPayload);
       console.log('Event updated: ', response.result);
-      appendMessage(`Событие **"${response.result.summary}"** успешно обновлено!`, 'system');
+      appendMessage(`Событие **"${response.result.summary}"** успешно обновлено!`, 'ai', 'event_card', response.result);
       await listUpcomingEvents();
       return response.result;
     } catch (err) {
@@ -552,57 +551,161 @@ function updateWelcomeScreenVisibility() {
   quickActionsBar.style.display = hasMessages && isSignedIn ? 'flex' : 'none';
 }
 
+function renderEventCard(eventData, isConfirmation = false) {
+    if (!eventData) return '';
+
+    const start = eventData.start?.dateTime ? new Date(eventData.start.dateTime) : null;
+    const end = eventData.end?.dateTime ? new Date(eventData.end.dateTime) : null;
+    
+    const timeString = start ? start.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    const dateString = start ? start.toLocaleDateString('ru-RU', { weekday: 'short', month: 'long', day: 'numeric' }) : '';
+
+    const attendees = eventData.attendees || [];
+    const attendeesHtml = attendees
+        .filter(att => !att.resource)
+        .map(att => `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(att.displayName || att.email)}&background=random&size=28&rounded=true" title="${att.displayName || att.email}" alt="Аватар ${att.displayName || att.email}" class="attendee-avatar">`)
+        .join('');
+
+    const calendar = userCalendars.find(c => c.id === eventData.calendarId) || { color: '#039be5' };
+    const calendarColor = eventData.color?.background || calendar.backgroundColor || '#039be5';
+    
+    const cardClass = isConfirmation ? 'confirmation-card' : 'event-card-in-chat';
+
+    return `
+      <div class="${cardClass}" data-event-id="${eventData.id || ''}" data-calendar-id="${eventData.calendarId || 'primary'}">
+        <div class="event-color-indicator" style="background-color: ${calendarColor};"></div>
+        <div class="event-details">
+            <h3 class="event-item-title">${eventData.summary || '(Без названия)'}</h3>
+            ${start ? `
+            <p class="event-item-time">
+                <span class="material-symbols-outlined">schedule</span>
+                ${dateString}, ${timeString}
+            </p>` : ''}
+            ${end && start && end.getTime() !== start.getTime() ? `
+            <p class="event-item-time">
+                <span class="material-symbols-outlined">update</span>
+                Окончание: ${end.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            </p>`: ''}
+            ${eventData.location ? `
+            <p class="event-item-location">
+                <span class="material-symbols-outlined">location_on</span>
+                ${eventData.location}
+            </p>` : ''}
+            ${eventData.conferenceData || eventData.hangoutLink ? `
+            <p class="event-item-meet">
+                <span class="material-symbols-outlined">videocam</span>
+                ${eventData.hangoutLink ? `<a href="${eventData.hangoutLink}" target="_blank" rel="noopener noreferrer" class="meet-link">Присоединиться</a>` : 'Видеовстреча Google Meet'}
+            </p>` : ''}
+            ${eventData.description ? `
+            <p class="event-item-description">
+                <span class="material-symbols-outlined">notes</span>
+                ${eventData.description.replace(/\n/g, '<br>')}
+            </p>` : ''}
+            ${attendees.length > 0 ? `<div class="event-item-attendees">${attendeesHtml}</div>` : ''}
+        </div>
+        ${!isConfirmation && eventData.id ? `
+        <div class="event-card-actions">
+            <button class="event-action-button edit" title="Изменить" data-event-id="${eventData.id}" data-calendar-id="${eventData.calendar?.id || eventData.calendarId || 'primary'}">
+                <span class="material-symbols-outlined">edit</span>
+            </button>
+            <button class="event-action-button delete" title="Удалить" data-event-id="${eventData.id}" data-calendar-id="${eventData.calendar?.id || eventData.calendarId || 'primary'}">
+                <span class="material-symbols-outlined">delete</span>
+            </button>
+        </div>` : ''}
+      </div>
+    `;
+}
+
 function appendMessage(
   content,
   sender,
   type = 'text',
-  eventData = null
+  data = null
 ) {
   const messageBubble = document.createElement('div');
   messageBubble.classList.add('message-bubble', sender);
   if (type === 'error') messageBubble.classList.add('error-message');
 
-  let mainContentHtml = marked.parse(content);
-  let eventHtml = '';
+  let mainContentHtml = content ? marked.parse(content) : '';
+  let interactiveHtml = '';
 
-  if (type === 'confirmation_request' && eventData) {
-    isWaitingForConfirmation = true;
-    currentEventDraft = eventData;
+  switch (type) {
+    case 'confirmation_request':
+      isWaitingForConfirmation = true;
+      currentEventDraft = data;
+      const confirmationTitle = editModeEventId ? 'Подтвердите изменения:' : 'Создать это событие?';
+      
+      interactiveHtml = `<h3>${confirmationTitle}</h3>` + renderEventCard(data, true);
+      interactiveHtml += `<div class="confirmation-buttons">
+         <button class="confirm-event-action action-button primary">${editModeEventId ? 'Да, обновить' : 'Да, создать'}</button>
+         <button class="cancel-event-action action-button">Отмена</button>
+       </div>`;
+      break;
 
-    const confirmationTitle = editModeEventId 
-        ? 'Подтвердите изменения в событии:' 
-        : 'Подтвердите создание события:';
-    const confirmButtonText = editModeEventId ? 'Да, обновить' : 'Да, создать';
+    case 'event_card':
+        interactiveHtml = renderEventCard(data);
+        break;
 
-    let eventDetailsHtml = `<h3>${confirmationTitle}</h3><ul>`;
-    if (eventData.summary) eventDetailsHtml += `<li><strong>Название:</strong> ${eventData.summary}</li>`;
-    if (eventData.start?.dateTime) eventDetailsHtml += `<li><strong>Начало:</strong> ${new Date(eventData.start.dateTime).toLocaleString('ru-RU')}</li>`;
-    if (eventData.end?.dateTime) eventDetailsHtml += `<li><strong>Окончание:</strong> ${new Date(eventData.end.dateTime).toLocaleString('ru-RU')}</li>`;
-    if (eventData.location) eventDetailsHtml += `<li><strong>Место:</strong> ${eventData.location}</li>`;
-    if (eventData.description) eventDetailsHtml += `<li><strong>Описание:</strong> ${eventData.description.replace(/\n/g, '<br>')}</li>`;
-    if (eventData.attendees && eventData.attendees.length > 0) {
-        const attendeeEmails = eventData.attendees.map(att => att.email).join(', ');
-        eventDetailsHtml += `<li><strong>Участники:</strong> ${attendeeEmails}</li>`;
-    }
-    if (eventData.conferenceData) {
-        eventDetailsHtml += `<li><strong>Видеовстреча:</strong> Да (будет создана)</li>`;
-    }
-    eventDetailsHtml += '</ul>';
-
-    eventDetailsHtml += `<div class="confirmation-buttons">
-           <button class="confirm-event-action action-button primary">${confirmButtonText}</button>
-           <button class="cancel-event-action action-button">Отмена</button>
-         </div>`;
-    eventHtml = eventDetailsHtml;
+    case 'contact_selection_request':
+        currentEventDraft = data.eventDetails;
+        interactiveHtml = `<div class="contact-picker" id="contact-picker-${Date.now()}">`;
+        data.contactsToResolve.forEach(person => {
+            interactiveHtml += `<fieldset class="contact-fieldset">
+                <legend>Выберите контакт для "${person.name}":</legend>`;
+            if (person.matches.length > 0) {
+                person.matches.forEach((match, index) => {
+                    interactiveHtml += `<div class="radio-option">
+                        <input type="radio" name="contact-${person.name}" id="contact-${person.name}-${index}" value="${match.email}" data-display-name="${match.name}">
+                        <label for="contact-${person.name}-${index}">${match.name} <span>(${match.email})</span></label>
+                    </div>`;
+                });
+            }
+            interactiveHtml += `<div class="radio-option">
+                <input type="radio" name="contact-${person.name}" id="contact-${person.name}-manual" value="manual">
+                <label for="contact-${person.name}-manual">Ввести email вручную</label>
+            </div>
+            <input type="email" class="manual-email-input" placeholder="Введите email" style="display:none;" id="manual-email-${person.name}">
+            </fieldset>`;
+        });
+        interactiveHtml += `<div class="confirmation-buttons">
+            <button class="confirm-contacts-action action-button primary">Подтвердить</button>
+            <button class="cancel-event-action action-button">Отмена</button>
+        </div></div>`;
+        break;
   }
-
-  messageBubble.innerHTML = mainContentHtml + eventHtml;
+  
+  messageBubble.innerHTML = mainContentHtml + interactiveHtml;
   messageList.appendChild(messageBubble);
 
+  // Add event listeners for interactive elements
   if (type === 'confirmation_request') {
     messageBubble.querySelector('.confirm-event-action')?.addEventListener('click', handleConfirmEvent);
     messageBubble.querySelector('.cancel-event-action')?.addEventListener('click', handleCancelEvent);
+  } else if (type === 'contact_selection_request') {
+      messageBubble.querySelectorAll('input[type="radio"]').forEach(radio => {
+          radio.addEventListener('change', (e) => {
+              const fieldset = e.target.closest('.contact-fieldset');
+              const manualInput = fieldset.querySelector('.manual-email-input');
+              manualInput.style.display = (e.target.value === 'manual') ? 'block' : 'none';
+          });
+      });
+      messageBubble.querySelector('.confirm-contacts-action').addEventListener('click', (e) => {
+          handleContactSelection(e.target.closest('.contact-picker'));
+      });
+      messageBubble.querySelector('.cancel-event-action').addEventListener('click', handleCancelEvent);
+  } else if (type === 'event_card') {
+      messageBubble.querySelector('.edit')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.event-card-in-chat');
+        handleEditEventStart(card.dataset.calendarId, card.dataset.eventId);
+      });
+      messageBubble.querySelector('.delete')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.event-card-in-chat');
+        if (confirm('Вы уверены, что хотите удалить это событие?')) {
+            deleteCalendarEvent(card.dataset.calendarId, card.dataset.eventId);
+        }
+      });
   }
+
 
   scrollToBottom();
   updateWelcomeScreenVisibility();
@@ -616,6 +719,10 @@ async function processAiResponse(parsedData) {
       }
       await handleListEventsAction(parsedData.listParameters);
       break;
+    
+    case 'REQUEST_CONTACTS':
+        await handleContactRequest(parsedData.contactNames, parsedData.eventDetails, parsedData.followUpQuestion);
+        break;
 
     case 'CREATE_EVENT':
     case 'EDIT_EVENT':
@@ -638,7 +745,7 @@ async function processAiResponse(parsedData) {
             console.log("Conflicts found:", conflicts);
             await handleUserInput(lastUserPrompt, conflicts);
         } else {
-            const confirmationMessage = parsedData.generalResponse || 'Вот детали события. Все верно?';
+            const confirmationMessage = parsedData.generalResponse || null;
             appendMessage(confirmationMessage, 'ai', 'confirmation_request', currentEventDraft);
         }
       }
@@ -719,6 +826,7 @@ async function handleEditEventStart(calendarId, eventId) {
         isWaitingForConfirmation = false;
 
         appendMessage(`Редактируем событие: **"${event.summary}"**. Что вы хотите изменить?`, 'ai');
+        chatTextInput.focus();
     } catch (err) {
         console.error('Error fetching event for edit:', err);
         const errorMessage = err.result?.error?.message || err.message || 'Неизвестная ошибка';
@@ -776,6 +884,76 @@ async function handleListEventsAction(params = {}) {
   }
 }
 
+async function handleContactRequest(names, eventDetails, followUpQuestion) {
+    setLoading(true);
+    const contactsToResolve = [];
+    try {
+        for (const name of names) {
+            const response = await gapi.client.people.people.connections.list({
+                resourceName: 'people/me',
+                personFields: 'names,emailAddresses',
+                query: name,
+                pageSize: 5
+            });
+            const matches = (response.result.connections || [])
+                .filter(p => p.emailAddresses && p.emailAddresses.length > 0)
+                .map(p => ({
+                    name: p.names && p.names.length > 0 ? p.names[0].displayName : p.emailAddresses[0].value,
+                    email: p.emailAddresses[0].value
+                }));
+            contactsToResolve.push({ name, matches });
+        }
+        appendMessage(followUpQuestion, 'ai', 'contact_selection_request', { contactsToResolve, eventDetails });
+    } catch (err) {
+        console.error("Error fetching contacts:", err);
+        appendMessage('Не удалось получить доступ к вашим контактам. Вы можете ввести email вручную.', 'system', 'error');
+        // Fallback to manual input maybe? For now, just show error.
+    } finally {
+        setLoading(false);
+    }
+}
+
+function handleContactSelection(pickerElement) {
+    const fieldsets = pickerElement.querySelectorAll('.contact-fieldset');
+    let allSelectionsValid = true;
+    const selectedAttendees = [...(currentEventDraft.attendees || [])];
+
+    fieldsets.forEach(fieldset => {
+        const selectedRadio = fieldset.querySelector('input[type="radio"]:checked');
+        if (!selectedRadio) {
+            allSelectionsValid = false;
+            return;
+        }
+
+        let email, displayName;
+        if (selectedRadio.value === 'manual') {
+            const manualInput = fieldset.querySelector('.manual-email-input');
+            email = manualInput.value.trim();
+            displayName = '';
+            if (!email || !manualInput.checkValidity()) {
+                allSelectionsValid = false;
+                manualInput.style.border = '1px solid red';
+                return;
+            }
+        } else {
+            email = selectedRadio.value;
+            displayName = selectedRadio.dataset.displayName;
+        }
+        selectedAttendees.push({ email, displayName });
+    });
+
+    if (!allSelectionsValid) {
+        alert('Пожалуйста, выберите контакт или введите корректный email для каждого участника.');
+        return;
+    }
+    
+    currentEventDraft.attendees = selectedAttendees;
+    pickerElement.closest('.message-bubble').remove(); // Clean up picker UI
+    
+    const confirmationPrompt = `Отлично, я добавил участников. Теперь давайте подтвердим событие.`;
+    handleUserInput(confirmationPrompt);
+}
+
 async function handleUserInput(text, conflicts = []) {
   const userInput = text.trim();
   if (userInput === '') return;
@@ -796,34 +974,35 @@ async function handleUserInput(text, conflicts = []) {
 
   const currentDate = new Date().toISOString();
   
-  const systemInstruction = `Вы — ИИ-ассистент-секретарь для управления Google Календарем. Ваша задача — проактивно помогать пользователю, анализируя контекст, предвосхищая его потребности и управляя событиями в нескольких календарях.
+  const systemInstruction = `Вы — ИИ-ассистент-секретарь для управления Google Календарем. Ваша задача — проактивно помогать пользователю, анализируя контекст и управляя событиями.
 
 - Текущая дата и время: ${currentDate}.
 - Всегда отвечайте в формате JSON.
 
 **Основная Логика:**
 
-1.  **Определение Календаря:**
-    - Проанализируйте запрос ('созвон с командой', 'день рождения мамы') и выберите наиболее подходящий \`calendarId\` из списка доступных календарей, передаваемых в запросе.
-    - Если контекст неоднозначен ("добавь встречу"), задайте уточняющий вопрос в \`followUpQuestion\` ("Это рабочее или личное событие?").
-    - По умолчанию используйте 'primary'. Укажите выбранный \`calendarId\` в \`eventDetails\`.
+1.  **Сбор Информации о Событии:**
+    - Соберите: \`summary\`, \`start.dateTime\`, \`end.dateTime\`, \`location\`, \`description\`. Если \`end.dateTime\` отсутствует, событие должно длиться 1 час.
+    - Проанализируйте запрос ('созвон с командой', 'день рождения мамы') и выберите наиболее подходящий \`calendarId\` из списка календарей. По умолчанию используйте 'primary'.
 
-2.  **Проверка Конфликтов (Важно!):**
-    - В запросе пользователя может быть поле 'conflictingEvents'. Если оно не пустое, значит, предлагаемое время занято.
-    - Ваша задача: Сообщить пользователю о конфликте и предложить варианты решения в \`followUpQuestion\`. Например: "В это время у вас уже запланирована встреча 'Обед с клиентом'. Все равно создать событие?".
-    - **Не подтверждайте событие, пока конфликт не будет разрешен пользователем.**
+2.  **Работа с Участниками (Attendees):**
+    - Если в запросе упоминаются имена людей ('с Анной', 'встреча с Анной и Иваном'), но не их email, используйте \`"action": "REQUEST_CONTACTS"\`.
+    - В поле \`contactNames\` передайте массив имен, которые нужно найти (например, \`["Анна", "Иван"]\`).
+    - В \`followUpQuestion\` напишите сообщение для пользователя (например, "Я нашел несколько контактов, уточните, кого пригласить").
+    - **Не добавляйте имена в \`attendees\` без email!** Дождитесь, пока пользователь выберет контакт.
 
-3.  **Создание и Редактирование Событий:**
-    - **Сбор Информации:** Соберите: \`summary\`, \`start.dateTime\`, \`end.dateTime\`, \`location\`, \`description\`. Если \`end.dateTime\` отсутствует, событие должно длиться 1 час.
-    - **Видеовстречи (Google Meet):** Если упоминается 'звонок', 'созвон', 'онлайн', **автоматически** добавляйте видеовстречу: \`"conferenceData": { "createRequest": { "requestId": "..." } }\`.
-    - **Участники (Attendees):** Если упоминаются люди ('с Анной'), соберите их email. Если email не указан, вежливо попросите его в \`followUpQuestion\`. Формат: \`"attendees": [{ "email": "user@example.com" }]\`.
-    - **Документы (Google Drive):** Если упоминаются 'отчет', 'презентация', предложите пользователю вставить ссылку на файл в \`followUpQuestion\`, чтобы вы добавили её в \`description\`.
+3.  **Проверка Конфликтов:**
+    - В запросе от пользователя может быть поле \`conflictingEvents\`. Если оно не пустое, сообщите о конфликте и предложите варианты в \`followUpQuestion\`.
 
-4.  **Подтверждение:**
-    - Когда вся информация собрана и конфликтов нет, НЕ задавайте \`followUpQuestion\`.
-    - Предоставьте полный объект события для финального подтверждения. В \`generalResponse\` дайте краткое резюме ("Создаю рабочую встречу с видеозвонком и Анной. Верно?").
+4.  **Видеовстречи и Документы:**
+    - Если упоминается 'звонок', 'созвон', 'онлайн', автоматически добавляйте видеовстречу: \`"conferenceData": { "createRequest": { "requestId": "..." } }\`.
+    - Если упоминаются 'отчет', 'документ', предложите вставить ссылку в \`followUpQuestion\`.
 
-**Actions:** \`CREATE_EVENT\`, \`EDIT_EVENT\`, \`LIST_EVENTS\`, \`GENERAL_QUERY\`.`;
+5.  **Финальное Подтверждение:**
+    - Когда ВСЯ информация собрана (включая email участников) и конфликтов нет, НЕ задавайте \`followUpQuestion\`.
+    - Используйте \`action\`: \`CREATE_EVENT\` или \`EDIT_EVENT\` и предоставьте полный объект события для финального подтверждения.
+
+**Actions:** \`CREATE_EVENT\`, \`EDIT_EVENT\`, \`LIST_EVENTS\`, \`GENERAL_QUERY\`, \`REQUEST_CONTACTS\`.`;
 
   const userPrompt = `
     Доступные календари: ${JSON.stringify(userCalendars.map(c => ({id: c.id, summary: c.summary})))}
@@ -1038,7 +1217,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 imageBase64DataForNextSend = base64String;
                 appendMessage('Изображение загружено. Теперь опишите, что вы хотите сделать.', 'system');
             };
-            reader.readDataURL(file);
+            reader.readAsDataURL(file);
         }
     });
     

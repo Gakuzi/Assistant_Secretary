@@ -218,6 +218,7 @@ body {
   color: var(--text-color-primary);
   margin-right: auto;
   border-bottom-left-radius: 4px;
+  max-width: 500px; /* Wider for cards */
 }
 .message-bubble.system, .message-bubble.error-message {
   background-color: var(--system-message-background);
@@ -381,7 +382,8 @@ body {
   padding: 0;
   margin: 0;
 }
-.event-item {
+
+.event-item, .event-card-in-chat, .confirmation-card {
   position: relative;
   padding: 16px;
   padding-left: 28px;
@@ -389,17 +391,29 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
   background-color: var(--surface-color);
-  cursor: pointer;
   transition: background-color 0.2s, box-shadow 0.2s;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
 }
+.event-item {
+  cursor: pointer;
+}
 .event-item:hover, .event-item:focus-within {
   background-color: #f7fafe;
   box-shadow: var(--shadow-sm);
 }
+
+.confirmation-card {
+    margin-top: 12px;
+}
+
+.event-card-in-chat {
+    margin: 12px 0 0 0;
+    box-shadow: var(--shadow-sm);
+}
+
 
 .event-color-indicator {
     position: absolute;
@@ -420,18 +434,20 @@ body {
   margin: 0 0 8px 0;
   font-size: 1.05em;
 }
-.event-item-time, .event-item-location, .event-item-meet {
+.event-item-time, .event-item-location, .event-item-meet, .event-item-description {
   font-size: 0.9em;
   color: var(--text-color-secondary);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin: 4px 0;
 }
 .event-item-time .material-symbols-outlined,
 .event-item-location .material-symbols-outlined,
-.event-item-meet .material-symbols-outlined {
+.event-item-meet .material-symbols-outlined,
+.event-item-description .material-symbols-outlined {
   font-size: 18px;
+  margin-top: 1px;
 }
 
 .event-item-meet .material-symbols-outlined {
@@ -446,7 +462,7 @@ body {
     text-decoration: underline;
 }
 
-.event-item-actions {
+.event-item-actions, .event-card-actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -484,16 +500,54 @@ body {
     margin-top: 12px;
 }
 .attendee-avatar {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     border: 2px solid var(--surface-color);
-    margin-left: -8px;
+    margin-left: -10px;
+    background-color: var(--light-gray-background);
 }
 .attendee-avatar:first-child {
     margin-left: 0;
 }
 
+/* --- Contact Picker --- */
+.contact-picker {
+    margin-top: 12px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+.contact-fieldset {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 12px;
+    margin-bottom: 12px;
+}
+.contact-fieldset legend {
+    font-size: 0.9em;
+    font-weight: 500;
+    padding: 0 8px;
+}
+.radio-option {
+    margin-bottom: 8px;
+}
+.radio-option label {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+}
+.radio-option label span {
+    color: var(--text-color-secondary);
+    font-size: 0.9em;
+    margin-left: 8px;
+}
+.manual-email-input {
+    width: calc(100% - 20px);
+    padding: 8px 10px;
+    margin-top: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+}
 
 /* --- Modals & Overlays --- */
 .modal {
@@ -534,7 +588,7 @@ body {
   display: block; font-size: 0.9em; font-weight: 500;
   margin-bottom: 6px; color: var(--text-color-secondary);
 }
-.form-field input[type="text"], .form-field input[type="password"] {
+.form-field input[type="text"], .form-field input[type="password"], .form-field input[type="email"] {
   width: 100%; padding: 10px;
   border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);
   font-size: 1em; box-sizing: border-box;
