@@ -130,12 +130,13 @@ async function initializeGapiClient() {
         
         // Don't show appendMessage error if it's the initial load, let the modal handle it.
         if (dom.welcomeScreen.style.display !== 'none') {
-             appendMessage('error', errorMessage);
+             // appendMessage('error', errorMessage); // This is now handled by updateUiForAuthState
         }
         
         // Reset state and update UI to reflect failure
         gapiInited = false;
         gisInited = false;
+        pickerApiLoaded = false;
         updateUiForAuthState(false);
         return false; // Failure
     }
