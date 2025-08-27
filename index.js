@@ -1,4 +1,3 @@
-
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -77,10 +76,16 @@ async function initializeApp() {
     if (geminiApiKey) {
         ai = new GoogleGenAI({ apiKey: geminiApiKey });
     }
+
+    let isSignedIn = false;
     if (GOOGLE_CLIENT_ID) {
         await initializeGapiClient();
+        if (gapiInited) {
+            isSignedIn = gapi.client.getToken() !== null;
+        }
     }
-    updateUiForAuthState(gapi.client.getToken() !== null);
+    
+    updateUiForAuthState(isSignedIn);
 }
 
 async function initializeGapiClient() {
