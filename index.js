@@ -26,6 +26,22 @@ let gisInited = false;
 let pickerApiLoaded = false;
 let chatHistory = [];
 let currentReplyContext = null;
+let currentDisplayedDate = new Date();
+let selectedCalendarId = 'primary';
+let tempEventAttachments = []; // For the edit modal
+
+// --- Speech Recognition ---
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition;
+let isRecognizing = false;
+
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+}
 
 // Promise-based script loading to prevent race conditions
 const gapiReady = new Promise(resolve => { window.gapiLoadedCallback = resolve; });
@@ -69,26 +85,19 @@ const dom = {
     dailyEventsList: document.getElementById('daily-events-list'),
     settingsModal: document.getElementById('settings-modal'),
     googleClientIdInstructionsModal: document.getElementById('google-client-id-instructions-modal'),
+    calendarSelect: document.getElementById('calendar-select'),
+    eventEditModal: document.getElementById('event-edit-modal'),
+    closeEventEditModalButton: document.getElementById('close-event-edit-modal-button'),
+    saveEventButton: document.getElementById('save-event-button'),
+    attachFromDriveButton: document.getElementById('attach-from-drive-button'),
 };
-
-let currentDisplayedDate = new Date();
-let recognition;
-
 
 // --- Core Application Logic ---
 
-/**
- * Initializes the GAPI client, loading necessary APIs and setting up the token client.
- * Decouples GIS (auth) from GAPI (client) initialization to allow re-auth on GAPI failure.
- * @returns {Promise<boolean>} - True if GAPI client was successful, false otherwise.
- */
 async function initializeGapiClient() {
-    gapiInited = false;
-    gisInited = false;
-    pickerApiLoaded = false;
-    
     try {
         await gapiReady;
+        gapi.load('client:picker', () => { pickerApiLoaded = true; });
         await gisReady;
 
         tokenClient = google.accounts.oauth2.initTokenClient({
@@ -98,32 +107,19 @@ async function initializeGapiClient() {
         });
         gisInited = true;
 
-        await new Promise((resolve, reject) => {
-            gapi.load('client:picker', { callback: resolve, onerror: reject });
-        });
-        pickerApiLoaded = true;
-
-        await gapi.client.init({
-            clientId: GOOGLE_CLIENT_ID,
-            discoveryDocs: DISCOVERY_DOCS,
-            scope: SCOPES,
-        });
+        await gapi.client.init({}); // Init without discovery docs first
         gapiInited = true;
 
         const token = gapi.client.getToken();
         updateUiForAuthState(token !== null && token.access_token);
-        return true; 
+        return true;
     } catch (error) {
         console.error('Error initializing Google API client:', error);
-        updateUiForAuthState(false); 
+        updateUiForAuthState(false);
         return false;
     }
 }
 
-/**
- * Reads API keys from localStorage and re-initializes the AI and Google clients.
- * @returns {Promise<boolean>} - True if initialization was successful, false otherwise.
- */
 async function reconfigureClientsFromStorage() {
     const geminiApiKey = localStorage.getItem('geminiApiKey');
     GOOGLE_CLIENT_ID = localStorage.getItem('googleClientId');
@@ -141,34 +137,24 @@ async function reconfigureClientsFromStorage() {
 
     if (geminiOk && GOOGLE_CLIENT_ID) {
         return await initializeGapiClient();
+    } else {
+         updateUiForAuthState(false);
     }
     return false;
 }
 
-/**
- * Main entry point for the application.
- */
 async function initializeApp() {
     setupEventListeners();
 
     document.getElementById('instructions-js-origin').textContent = window.location.origin;
     document.getElementById('instructions-redirect-uri').textContent = window.location.origin;
 
-    const keysExist = localStorage.getItem('geminiApiKey') && localStorage.getItem('googleClientId');
-
-    if (keysExist) {
-        await reconfigureClientsFromStorage();
-    } else {
-        updateUiForAuthState(false); // No keys, go to unconfigured state
-    }
+    await reconfigureClientsFromStorage();
 }
 
 
 // --- Authentication & UI Updates ---
 
-/**
- * Handles the click event for the authorization button.
- */
 function handleAuthClick() {
     if (!gisInited || !tokenClient) {
         console.error("Auth button clicked before GIS token client initialization.");
@@ -178,9 +164,6 @@ function handleAuthClick() {
     tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
-/**
- * Handles the click event for the sign-out button.
- */
 function handleSignOutClick() {
     const token = gapi.client.getToken();
     if (token !== null) {
@@ -193,10 +176,6 @@ function handleSignOutClick() {
     }
 }
 
-/**
- * Callback function for the token client. Handles the response from the OAuth2 flow.
- * @param {object} response - The token response from Google.
- */
 async function handleTokenResponse(response) {
     if (response.error) {
         console.error('Google token error:', response);
@@ -204,6 +183,10 @@ async function handleTokenResponse(response) {
         return;
     }
     gapi.client.setToken(response);
+    await gapi.client.load('calendar', 'v3');
+    await gapi.client.load('people', 'v1');
+    await gapi.client.load('tasks', 'v1');
+    await gapi.client.load('docs', 'v1');
     await updateUiForAuthState(true);
     if (dom.settingsModal.classList.contains('visible')) {
         closeModal(dom.settingsModal);
@@ -211,10 +194,6 @@ async function handleTokenResponse(response) {
 }
 
 
-/**
- * Updates the UI based on the user's authentication state.
- * @param {boolean} isSignedIn - Whether the user is signed in.
- */
 async function updateUiForAuthState(isSignedIn) {
     const keysExist = localStorage.getItem('geminiApiKey') && localStorage.getItem('googleClientId');
 
@@ -224,8 +203,6 @@ async function updateUiForAuthState(isSignedIn) {
         dom.calendarViewContainer.style.display = 'grid';
         dom.suggestionChipsContainer.style.display = 'flex';
 
-
-        // Fetch and display user profile
         try {
             const profile = await gapi.client.people.people.get({
                 resourceName: 'people/me',
@@ -240,20 +217,15 @@ async function updateUiForAuthState(isSignedIn) {
             dom.userAvatar.src = avatarUrl;
             dom.userProfile.style.display = 'flex';
 
-            const settingsAvatar = document.getElementById('settings-user-avatar');
-            const settingsName = document.getElementById('settings-user-name');
-            const settingsEmail = document.getElementById('settings-user-email');
-            settingsAvatar.src = avatarUrl;
-            settingsName.textContent = name;
-            settingsEmail.textContent = email;
+            document.getElementById('settings-user-avatar').src = avatarUrl;
+            document.getElementById('settings-user-name').textContent = name;
+            document.getElementById('settings-user-email').textContent = email;
             document.getElementById('settings-user-profile').style.display = 'flex';
 
-        } catch (err) {
-            console.error('Error fetching user profile:', err);
-        }
+        } catch (err) { console.error('Error fetching user profile:', err); }
 
+        await loadUserCalendars();
         renderCalendar(currentDisplayedDate);
-        loadCalendarEvents(currentDisplayedDate.getFullYear(), currentDisplayedDate.getMonth());
 
         document.getElementById('auth-container-settings').innerHTML = '';
         const signOutButton = document.getElementById('sign-out-button');
@@ -284,9 +256,6 @@ async function updateUiForAuthState(isSignedIn) {
 }
 
 
-/**
- * Creates and displays the "Sign in with Google" button.
- */
 function displayAuthButtons() {
     const authContainerSettings = document.getElementById('auth-container-settings');
     if (!authContainerSettings) return;
@@ -304,7 +273,7 @@ function displayAuthButtons() {
         button.className = 'action-button primary';
         button.style.margin = '0';
         button.onclick = handleAuthClick;
-        button.innerHTML = `<svg width="20" height="20" viewBox="0 0 20 20" style="margin-right: 8px;" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M19.6 10.2045C19.6 9.50907 19.5409 8.8318 19.4273 8.1818H10V11.8727H15.5545C15.3364 13.0182 14.7364 14.0182 13.8455 14.6591V17.1364H16.7136C18.5273 15.4636 19.6 13.0318 19.6 10.2045Z" fill="#4285F4"/><path d="M10 20C12.7 20 15.0136 19.0455 16.7136 17.1364L13.8455 14.6591C12.9227 15.2545 11.5864 15.6818 10 15.6818C7.38182 15.6818 5.15 13.9818 4.31818 11.6409H1.35909V14.2C3.05909 17.65 6.27727 20 10 20Z" fill="#34A853"/><path d="M4.31818 11.6409C4.12727 11.0864 4.01364 10.4955 4.01364 9.88636C4.01364 9.27727 4.12727 8.68636 4.31818 8.13182V5.57273H1.35909C0.5 7.15909 0 8.46364 0 9.88636C0 11.3091 0.5 12.6136 1.35909 14.2L4.31818 11.6409Z" fill="#FBBC05"/><path d="M10 4.09091C11.4318 4.09091 12.7727 4.58636 13.8 5.53182L16.7818 2.58636C15.0091 0.981818 12.6955 0 10 0C6.27727 0 3.05909 2.35 1.35909 5.57273L4.31818 8.13182C5.15 5.79091 7.38182 4.09091 10 4.09091Z" fill="#EA4335"/></svg> Войти через Google`;
+        button.innerHTML = `<svg width="20" height="20" viewBox="0 0 20 20" style="margin-right: 8px;" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M19.6 10.2045C19.6 9.50907 19.5409 8.83180 19.4273 8.1818H10V11.8727H15.5545C15.3364 13.0182 14.7364 14.0182 13.8455 14.6591V17.1364H16.7136C18.5273 15.4636 19.6 13.0318 19.6 10.2045Z" fill="#4285F4"/><path d="M10 20C12.7 20 15.0136 19.0455 16.7136 17.1364L13.8455 14.6591C12.9227 15.2545 11.5864 15.6818 10 15.6818C7.38182 15.6818 5.15 13.9818 4.31818 11.6409H1.35909V14.2C3.05909 17.65 6.27727 20 10 20Z" fill="#34A853"/><path d="M4.31818 11.6409C4.12727 11.0864 4.01364 10.4955 4.01364 9.88636C4.01364 9.27727 4.12727 8.68636 4.31818 8.13182V5.57273H1.35909C0.5 7.15909 0 8.46364 0 9.88636C0 11.3091 0.5 12.6136 1.35909 14.2L4.31818 11.6409Z" fill="#FBBC05"/><path d="M10 4.09091C11.4318 4.09091 12.7727 4.58636 13.8 5.53182L16.7818 2.58636C15.0091 0.981818 12.6955 0 10 0C6.27727 0 3.05909 2.35 1.35909 5.57273L4.31818 8.13182C5.15 5.79091 7.38182 4.09091 10 4.09091Z" fill="#EA4335"/></svg> Войти через Google`;
         authContainerSettings.appendChild(button);
     } else {
         authContainerSettings.innerHTML = '<p style="font-size: 0.9em; color: var(--error-color);">Не удалось загрузить сервисы авторизации. Проверьте Client ID.</p>';
@@ -312,36 +281,40 @@ function displayAuthButtons() {
 }
 
 
-// --- Modals (Settings) ---
+// --- Modals ---
 
-function saveApiKeys(geminiKey, clientId) {
-    localStorage.setItem('geminiApiKey', geminiKey);
-    localStorage.setItem('googleClientId', clientId);
-}
-
-function showSettingsModal() {
-    dom.settingsModal.style.display = 'flex';
-    setTimeout(() => dom.settingsModal.classList.add('visible'), 10);
-    
-    document.getElementById('settings-gemini-api-key').value = localStorage.getItem('geminiApiKey') || '';
-    document.getElementById('settings-google-client-id').value = localStorage.getItem('googleClientId') || '';
-    
-    const isSignedIn = gapi?.client?.getToken();
-    updateUiForAuthState(!!isSignedIn);
+function showModal(modalElement) {
+    modalElement.style.display = 'flex';
+    setTimeout(() => modalElement.classList.add('visible'), 10);
 }
 
 function closeModal(modalElement) {
     modalElement.classList.remove('visible');
-    setTimeout(() => modalElement.style.display = 'none', 300);
+    setTimeout(() => { modalElement.style.display = 'none'; }, 300);
 }
 
 // --- Calendar Logic ---
 
-/**
- * Loads calendar events for a specific month and updates the UI.
- * @param {number} year - The full year.
- * @param {number} month - The month (0-11).
- */
+async function loadUserCalendars() {
+    try {
+        const response = await gapi.client.calendar.calendarList.list();
+        const calendars = response.result.items;
+        dom.calendarSelect.innerHTML = '';
+        calendars.forEach(cal => {
+            const option = document.createElement('option');
+            option.value = cal.id;
+            option.textContent = cal.summary;
+            if (cal.primary) {
+                option.selected = true;
+                selectedCalendarId = cal.id;
+            }
+            dom.calendarSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading calendar list:', error);
+    }
+}
+
 async function loadCalendarEvents(year, month) {
     if (!gapi?.client?.calendar) return;
 
@@ -350,7 +323,7 @@ async function loadCalendarEvents(year, month) {
 
     try {
         const response = await gapi.client.calendar.events.list({
-            'calendarId': 'primary',
+            'calendarId': selectedCalendarId,
             'timeMin': timeMin,
             'timeMax': timeMax,
             'showDeleted': false,
@@ -367,6 +340,7 @@ async function loadCalendarEvents(year, month) {
 
         events.forEach(event => {
             const startDate = new Date(event.start.dateTime || event.start.date);
+            if (startDate.getMonth() !== month) return; // Fix for multi-day events spilling over
             const dayOfMonth = startDate.getDate();
             const cell = dom.calendarGridDays.querySelector(`[data-day="${dayOfMonth}"]`);
             if (cell && !cell.querySelector('.event-dot')) {
@@ -382,11 +356,8 @@ async function loadCalendarEvents(year, month) {
     }
 }
 
-/**
- * Renders the calendar grid for a given date.
- * @param {Date} date - The date to display.
- */
 function renderCalendar(date) {
+    if (!gapi.client.getToken()) return;
     const year = date.getFullYear();
     const month = date.getMonth();
 
@@ -421,7 +392,6 @@ function renderCalendar(date) {
             }
         }
 
-
         cell.addEventListener('click', () => {
             const currentlySelected = dom.calendarGridDays.querySelector('.selected');
             if (currentlySelected) currentlySelected.classList.remove('selected');
@@ -447,10 +417,6 @@ function renderCalendar(date) {
 }
 
 
-/**
- * Renders the list of events for a specific day.
- * @param {Date} date - The selected date.
- */
 async function renderDailyEvents(date) {
     dom.dailyEventsHeader.textContent = date.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
     dom.dailyEventsHeader.dataset.date = date.toISOString();
@@ -466,7 +432,7 @@ async function renderDailyEvents(date) {
 
     try {
         const response = await gapi.client.calendar.events.list({
-            'calendarId': 'primary',
+            'calendarId': selectedCalendarId,
             'timeMin': timeMin,
             'timeMax': timeMax,
             'showDeleted': false,
@@ -492,13 +458,11 @@ async function renderDailyEvents(date) {
 
 function formatEventTime(start, end) {
     const startDate = new Date(start.dateTime || start.date);
-    if (start.date) { // All-day event
-        return 'Весь день';
-    }
+    if (start.date) return 'Весь день';
+    
     const startTime = startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    if (!end || !end.dateTime) {
-        return startTime;
-    }
+    if (!end || !end.dateTime) return startTime;
+    
     const endTime = new Date(end.dateTime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     return `${startTime} - ${endTime}`;
 }
@@ -531,27 +495,16 @@ function createEventElement(event, context = 'chat') {
                 <span class="material-symbols-outlined">schedule</span>
                 <span>${formatEventTime(event.start, event.end)}</span>
             </div>
-            ${event.location ? `
-            <div class="event-item-location">
-                <span class="material-symbols-outlined">location_on</span>
-                <span>${event.location}</span>
-            </div>` : ''}
-            ${event.hangoutLink ? `
-            <div class="event-item-meet">
-                 <span class="material-symbols-outlined">videocam</span>
-                 <a href="${event.hangoutLink}" target="_blank" rel="noopener noreferrer" class="meet-link">Присоединиться к встрече</a>
-            </div>
-            ` : ''}
-            ${event.description ? `
-            <div class="event-item-description" style="white-space: pre-wrap; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
-                 <span class="material-symbols-outlined">notes</span>
-                 <span>${event.description}</span>
-            </div>
-            ` : ''}
+            ${event.location ? `<div class="event-item-location"><span class="material-symbols-outlined">location_on</span><span>${event.location}</span></div>` : ''}
+            ${event.hangoutLink ? `<div class="event-item-meet"><span class="material-symbols-outlined">videocam</span><a href="${event.hangoutLink}" target="_blank" rel="noopener noreferrer" class="meet-link">Присоединиться к встрече</a></div>` : ''}
+            ${event.description ? `<div class="event-item-description" style="white-space: pre-wrap; max-height: 60px; overflow: hidden; text-overflow: ellipsis;"><span class="material-symbols-outlined">notes</span><span>${event.description}</span></div>` : ''}
             ${attendeesHtml}
         </div>
         ${context === 'list-item' ? `
         <div class="event-item-actions">
+            <button class="event-action-button edit" aria-label="Редактировать событие" data-event-id="${event.id}">
+                <span class="material-symbols-outlined">edit</span>
+            </button>
             <a href="${event.htmlLink}" target="_blank" rel="noopener noreferrer" class="event-action-button" aria-label="Открыть в Google Календаре">
                 <span class="material-symbols-outlined">open_in_new</span>
             </a>
@@ -562,26 +515,24 @@ function createEventElement(event, context = 'chat') {
         ` : ''}
     `;
     if (context === 'list-item') {
-        const deleteButton = li.querySelector('.delete');
-        if (deleteButton) {
-            deleteButton.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                if (confirm(`Вы уверены, что хотите удалить событие "${event.summary}"?`)) {
-                    try {
-                        await gapi.client.calendar.events.delete({
-                            calendarId: 'primary',
-                            eventId: event.id
-                        });
-                        li.remove();
-                        loadCalendarEvents(currentDisplayedDate.getFullYear(), currentDisplayedDate.getMonth());
-                        appendMessage('system', `Событие "${event.summary}" удалено.`);
-                    } catch (error) {
-                        console.error('Error deleting event:', error);
-                        appendMessage('error', 'Не удалось удалить событие.');
-                    }
+        li.querySelector('.delete')?.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm(`Вы уверены, что хотите удалить событие "${event.summary}"?`)) {
+                try {
+                    await gapi.client.calendar.events.delete({ calendarId: selectedCalendarId, eventId: event.id });
+                    li.remove();
+                    loadCalendarEvents(currentDisplayedDate.getFullYear(), currentDisplayedDate.getMonth());
+                    appendMessage('system', `Событие "${event.summary}" удалено.`);
+                } catch (error) {
+                    console.error('Error deleting event:', error);
+                    appendMessage('error', 'Не удалось удалить событие.');
                 }
-            });
-        }
+            }
+        });
+        li.querySelector('.edit')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEditEventModal(event.id);
+        });
     } else {
         li.addEventListener('click', () => {
              const eventDate = new Date(event.start.dateTime || event.start.date);
@@ -596,18 +547,10 @@ function createEventElement(event, context = 'chat') {
 
 function getCalendarColor(colorId) {
     const colors = {
-        '1': { background: '#a4bdfc', foreground: '#1d1d1d' },
-        '2': { background: '#7ae7bf', foreground: '#1d1d1d' },
-        '3': { background: '#dbadff', foreground: '#1d1d1d' },
-        '4': { background: '#ff887c', foreground: '#1d1d1d' },
-        '5': { background: '#fbd75b', foreground: '#1d1d1d' },
-        '6': { background: '#ffb878', foreground: '#1d1d1d' },
-        '7': { background: '#46d6db', foreground: '#1d1d1d' },
-        '8': { background: '#e1e1e1', foreground: '#1d1d1d' },
-        '9': { background: '#5484ed', foreground: '#ffffff' },
-        '10': { background: '#51b749', foreground: '#ffffff' },
-        '11': { background: '#dc2127', foreground: '#ffffff' },
-        'default': { background: '#039be5', foreground: '#ffffff' },
+        '1': { background: '#a4bdfc' }, '2': { background: '#7ae7bf' }, '3': { background: '#dbadff' },
+        '4': { background: '#ff887c' }, '5': { background: '#fbd75b' }, '6': { background: '#ffb878' },
+        '7': { background: '#46d6db' }, '8': { background: '#e1e1e1' }, '9': { background: '#5484ed' },
+        '10': { background: '#51b749' }, '11': { background: '#dc2127' }, 'default': { background: '#039be5' },
     };
     return colors[colorId] || colors['default'];
 }
@@ -616,11 +559,14 @@ function getCalendarColor(colorId) {
 // --- Chat & Gemini ---
 
 function getSystemInstruction() {
+    const selectedCalendar = dom.calendarSelect.options[dom.calendarSelect.selectedIndex];
+    const calendarContext = selectedCalendar ? `Текущий выбранный календарь: "${selectedCalendar.text}" (ID: ${selectedCalendarId}). Используй этот ID для всех операций с календарем.` : '';
+
     return `Вы — высокоинтеллектуальный ассистент, интегрированный с Google Календарем, задачами и документами.
         Ваша цель — помогать пользователю управлять своим расписанием, задачами и заметками.
         Всегда отвечайте на русском языке.
-        
         Текущая дата и время: ${new Date().toISOString()}.
+        ${calendarContext}
         
         Когда пользователь просит создать событие, используйте функцию create_calendar_event.
         Когда пользователь просит найти событие, используйте find_calendar_events.
@@ -645,93 +591,34 @@ async function sendMessage(text, images = []) {
     setTimeout(() => { dom.welcomeScreen.style.display = 'none'; }, 300);
 
     const userMessage = { role: 'user', parts: [] };
-    if (text) {
-        userMessage.parts.push({ text: text });
-        appendMessage('user', text);
-    }
+    if (text) userMessage.parts.push({ text: text });
     if (images.length > 0) {
-        images.forEach(img => {
-            userMessage.parts.push({ inlineData: { mimeType: img.type, data: img.data } });
-        });
+        images.forEach(img => userMessage.parts.push({ inlineData: { mimeType: img.type, data: img.data } }));
     }
 
-    if (currentReplyContext) {
-        chatHistory.push(currentReplyContext.aiResponse);
-        clearReplyContext();
-    }
+    appendMessage('user', text, chatHistory.length);
     chatHistory.push(userMessage);
-
+    
     dom.chatTextInput.value = '';
     dom.chatTextInput.style.height = 'auto';
 
-
     try {
-        if (!ai) {
-             throw new Error("Gemini AI client is not initialized. Please check your API key.");
-        }
+        if (!ai) throw new Error("Gemini AI client is not initialized. Please check your API key.");
 
         const result = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: chatHistory,
             systemInstruction: getSystemInstruction(),
-            tools: [{
-                functionDeclarations: [
-                    {
-                        name: 'create_calendar_event',
-                        description: 'Создает новое событие в Google Календаре.',
-                        parameters: {
-                            type: Type.OBJECT,
-                            properties: {
-                                summary: { type: Type.STRING, description: 'Название или заголовок события.' },
-                                description: { type: Type.STRING, description: 'Подробное описание события.' },
-                                location: { type: Type.STRING, description: 'Место проведения события.' },
-                                startDateTime: { type: Type.STRING, description: 'Дата и время начала в формате ISO 8601.' },
-                                endDateTime: { type: Type.STRING, description: 'Дата и время окончания в формате ISO 8601.' },
-                                attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Список email-адресов участников.' },
-                                createConference: { type: Type.BOOLEAN, description: 'Создать ли видеовстречу Google Meet.' },
-                            },
-                            required: ['summary', 'startDateTime', 'endDateTime'],
-                        },
-                    },
-                    {
-                        name: 'find_calendar_events',
-                        description: 'Ищет события в Google Календаре по запросу.',
-                        parameters: {
-                            type: Type.OBJECT,
-                            properties: {
-                                query: { type: Type.STRING, description: 'Поисковый запрос (например, "встреча с командой").' },
-                                timeMin: { type: Type.STRING, description: 'Начальная дата для поиска в формате ISO 8601.' },
-                                timeMax: { type: Type.STRING, description: 'Конечная дата для поиска в формате ISO 8601.' },
-                            },
-                        },
-                    },
-                    {
-                        name: 'create_task',
-                        description: 'Создает новую задачу в Google Tasks.',
-                        parameters: {
-                            type: Type.OBJECT,
-                            properties: {
-                                title: { type: Type.STRING, description: 'Название задачи.' },
-                                notes: { type: Type.STRING, description: 'Дополнительные детали задачи.' },
-                                due: { type: Type.STRING, description: 'Срок выполнения в формате ISO 8601.' },
-                            },
-                            required: ['title'],
-                        },
-                    },
-                    {
-                        name: 'create_document_for_event',
-                        description: 'Создает Google Документ для повестки встречи и прикрепляет его к событию в календаре.',
-                        parameters: {
-                            type: Type.OBJECT,
-                            properties: {
-                                eventId: { type: Type.STRING, description: 'ID события в календаре, к которому нужно прикрепить документ.' },
-                                documentTitle: { type: Type.STRING, description: 'Заголовок нового Google Документа.' },
-                            },
-                            required: ['eventId', 'documentTitle'],
-                        },
-                    },
-                ]
-            }],
+            tools: [{ functionDeclarations: [
+                {   name: 'create_calendar_event', description: 'Создает новое событие в Google Календаре.',
+                    parameters: { type: Type.OBJECT, properties: { summary: { type: Type.STRING }, description: { type: Type.STRING }, location: { type: Type.STRING }, startDateTime: { type: Type.STRING }, endDateTime: { type: Type.STRING }, attendees: { type: Type.ARRAY, items: { type: Type.STRING } }, createConference: { type: Type.BOOLEAN } }, required: ['summary', 'startDateTime', 'endDateTime'] } },
+                {   name: 'find_calendar_events', description: 'Ищет события в Google Календаре по запросу.',
+                    parameters: { type: Type.OBJECT, properties: { query: { type: Type.STRING }, timeMin: { type: Type.STRING }, timeMax: { type: Type.STRING } } } },
+                {   name: 'create_task', description: 'Создает новую задачу в Google Tasks.',
+                    parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, notes: { type: Type.STRING }, due: { type: Type.STRING } }, required: ['title'] } },
+                {   name: 'create_document_for_event', description: 'Создает Google Документ для повестки встречи и прикрепляет его к событию в календаре.',
+                    parameters: { type: Type.OBJECT, properties: { eventId: { type: Type.STRING }, documentTitle: { type: Type.STRING } }, required: ['eventId', 'documentTitle'] } },
+            ]}]
         });
         
         await handleApiResponse(result);
@@ -744,9 +631,10 @@ async function sendMessage(text, images = []) {
     }
 }
 
-function appendMessage(sender, content) {
+function appendMessage(sender, content, historyIndex) {
     const messageContainer = document.createElement('div');
-    messageContainer.className = 'message-container';
+    messageContainer.className = `message-container ${sender}`;
+    messageContainer.dataset.historyIndex = historyIndex;
 
     const messageBubble = document.createElement('div');
     messageBubble.className = `message-bubble ${sender}`;
@@ -754,28 +642,23 @@ function appendMessage(sender, content) {
     if (sender === 'error' || sender === 'system') {
         messageBubble.textContent = content;
     } else {
-        const parsedContent = marked.parse(content);
-        messageBubble.innerHTML = parsedContent;
+        messageBubble.innerHTML = marked.parse(content);
+    }
+    
+    const messageActions = document.createElement('div');
+    messageActions.className = 'message-actions';
+
+    if (sender === 'user') {
+        const editButton = document.createElement('button');
+        editButton.className = 'message-action-button';
+        editButton.innerHTML = `<span class="material-symbols-outlined">edit</span>`;
+        editButton.setAttribute('aria-label', 'Редактировать');
+        editButton.onclick = () => enableMessageEditing(messageContainer, messageBubble, content, historyIndex);
+        messageActions.appendChild(editButton);
     }
     
     messageContainer.appendChild(messageBubble);
-
-    if (sender === 'ai' || sender === 'user') {
-        const replyButton = document.createElement('button');
-        replyButton.className = 'message-reply-button';
-        replyButton.innerHTML = `<span class="material-symbols-outlined">reply</span>`;
-        replyButton.setAttribute('aria-label', 'Ответить на это сообщение');
-        replyButton.onclick = () => {
-            currentReplyContext = {
-                userQuery: sender === 'user' ? { role: 'user', parts: [{ text: content }] } : chatHistory[chatHistory.length - 2],
-                aiResponse: sender === 'ai' ? { role: 'model', parts: [{ text: content }] } : chatHistory[chatHistory.length - 1],
-            };
-            dom.chatReplyContextText.textContent = `Ответ на: "${content.substring(0, 50)}..."`;
-            dom.chatReplyContext.style.display = 'flex';
-            dom.chatTextInput.focus();
-        };
-        messageContainer.appendChild(replyButton);
-    }
+    messageContainer.appendChild(messageActions);
 
     dom.messageList.appendChild(messageContainer);
     dom.messageList.scrollTop = dom.messageList.scrollHeight;
@@ -783,36 +666,22 @@ function appendMessage(sender, content) {
 }
 
 async function handleApiResponse(response) {
-    const text = response.text;
     const functionCall = response.candidates[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
 
     if (functionCall) {
         const { name, args } = functionCall;
         appendMessage('system', `Выполняю действие: ${name}...`);
-
         chatHistory.push(response.candidates[0].content);
 
         const apiResponse = await processFunctionCall(name, args);
         
-        chatHistory.push({
-            role: 'tool',
-            parts: [{
-                functionResponse: {
-                    name,
-                    response: apiResponse,
-                },
-            }],
-        });
+        chatHistory.push({ role: 'tool', parts: [{ functionResponse: { name, response: apiResponse } }] });
 
-        const result2 = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: chatHistory,
-            systemInstruction: getSystemInstruction(),
-        });
-        
+        const result2 = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: chatHistory, systemInstruction: getSystemInstruction() });
         await handleApiResponse(result2);
 
-    } else if (text) {
+    } else if (response.text) {
+        const text = response.text;
         appendMessage('ai', text);
         chatHistory.push({ role: 'model', parts: [{ text }] });
     } else {
@@ -826,18 +695,15 @@ async function processFunctionCall(name, args) {
         let result = {};
         switch (name) {
             case 'create_calendar_event':
-                const event = {
-                    summary: args.summary,
-                    location: args.location,
-                    description: args.description,
-                    start: { dateTime: args.startDateTime, timeZone: 'Europe/Moscow' },
-                    end: { dateTime: args.endDateTime, timeZone: 'Europe/Moscow' },
-                    attendees: args.attendees ? args.attendees.map(email => ({ email })) : [],
-                    conferenceData: args.createConference ? { createRequest: { requestId: `meet-${Date.now()}` } } : null,
-                };
                 const createResponse = await gapi.client.calendar.events.insert({
-                    calendarId: 'primary',
-                    resource: event,
+                    calendarId: selectedCalendarId,
+                    resource: {
+                        summary: args.summary, location: args.location, description: args.description,
+                        start: { dateTime: args.startDateTime, timeZone: 'Europe/Moscow' },
+                        end: { dateTime: args.endDateTime, timeZone: 'Europe/Moscow' },
+                        attendees: args.attendees ? args.attendees.map(email => ({ email })) : [],
+                        conferenceData: args.createConference ? { createRequest: { requestId: `meet-${Date.now()}` } } : null,
+                    },
                     conferenceDataVersion: 1,
                 });
                 result = createResponse.result;
@@ -848,55 +714,25 @@ async function processFunctionCall(name, args) {
                 break;
             case 'find_calendar_events':
                 const findResponse = await gapi.client.calendar.events.list({
-                    calendarId: 'primary',
-                    q: args.query,
-                    timeMin: args.timeMin || new Date().toISOString(),
-                    timeMax: args.timeMax,
-                    showDeleted: false,
-                    singleEvents: true,
-                    orderBy: 'startTime',
-                    maxResults: 5,
+                    calendarId: selectedCalendarId, q: args.query,
+                    timeMin: args.timeMin || new Date().toISOString(), timeMax: args.timeMax,
+                    showDeleted: false, singleEvents: true, orderBy: 'startTime', maxResults: 5,
                 });
                 result = findResponse.result.items;
                 break;
             case 'create_task':
-                 const task = {
-                    title: args.title,
-                    notes: args.notes,
-                    due: args.due
-                };
-                const taskResponse = await gapi.client.tasks.tasks.insert({
-                    tasklist: '@default',
-                    resource: task
-                });
+                const taskResponse = await gapi.client.tasks.tasks.insert({ tasklist: '@default', resource: { title: args.title, notes: args.notes, due: args.due } });
                 result = taskResponse.result;
                 break;
             case 'create_document_for_event':
-                const docResponse = await gapi.client.docs.documents.create({
-                    title: args.documentTitle
-                });
-                const docId = docResponse.result.documentId;
-                const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+                const docResponse = await gapi.client.docs.documents.create({ title: args.documentTitle });
+                const docUrl = `https://docs.google.com/document/d/${docResponse.result.documentId}/edit`;
 
-                const eventToUpdate = await gapi.client.calendar.events.get({
-                    calendarId: 'primary',
-                    eventId: args.eventId
-                });
+                const eventToUpdate = await gapi.client.calendar.events.get({ calendarId: selectedCalendarId, eventId: args.eventId });
+                const updatedAttachments = eventToUpdate.result.attachments || [];
+                updatedAttachments.push({ fileUrl: docUrl, title: args.documentTitle });
 
-                const updatedEvent = eventToUpdate.result;
-                updatedEvent.attachments = updatedEvent.attachments || [];
-                updatedEvent.attachments.push({
-                    fileUrl: docUrl,
-                    title: args.documentTitle
-                });
-
-                const patchResponse = await gapi.client.calendar.events.patch({
-                    calendarId: 'primary',
-                    eventId: args.eventId,
-                    resource: {
-                       attachments: updatedEvent.attachments
-                    }
-                });
+                const patchResponse = await gapi.client.calendar.events.patch({ calendarId: selectedCalendarId, eventId: args.eventId, resource: { attachments: updatedAttachments } });
                 result = { documentUrl: docUrl, event: patchResponse.result };
                 break;
         }
@@ -917,33 +753,56 @@ function showLoading(isLoading) {
     dom.cameraButtonChat.disabled = isLoading;
 }
 
-function clearReplyContext() {
-    currentReplyContext = null;
-    dom.chatReplyContext.style.display = 'none';
-}
-
-async function handleCamera(source) {
-    if (source === 'upload') {
-        dom.imageUploadInputChat.click();
-    } else if (source === 'take') {
-        dom.cameraModal.style.display = 'block';
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            dom.cameraStreamElement.srcObject = stream;
-        } catch (err) {
-            console.error("Error accessing camera: ", err);
-            appendMessage('error', 'Не удалось получить доступ к камере.');
-            dom.cameraModal.style.display = 'none';
-        }
-    }
-}
-
 async function base64Encode(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result.split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
+    });
+}
+
+function enableMessageEditing(container, bubble, originalText, index) {
+    bubble.style.display = 'none';
+    const input = document.createElement('textarea');
+    input.value = originalText;
+    input.className = 'message-editing-textarea';
+    input.rows = Math.min(10, originalText.split('\n').length);
+    
+    container.insertBefore(input, bubble);
+    input.focus();
+
+    const finishEditing = () => {
+        const newText = input.value.trim();
+        if (newText && newText !== originalText) {
+            // Remove all subsequent messages from DOM
+            let nextSibling = container.nextElementSibling;
+            while(nextSibling) {
+                let toRemove = nextSibling;
+                nextSibling = nextSibling.nextElementSibling;
+                toRemove.remove();
+            }
+            container.remove();
+
+            // Rewind chat history
+            chatHistory.splice(index);
+            sendMessage(newText);
+        } else {
+            input.remove();
+            bubble.style.display = 'block';
+        }
+    };
+
+    input.addEventListener('blur', finishEditing);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            input.blur();
+        }
+        if (e.key === 'Escape') {
+            input.value = originalText;
+            input.blur();
+        }
     });
 }
 
@@ -960,12 +819,39 @@ function setupEventListeners() {
 
     dom.chatTextInput.addEventListener('input', () => {
         dom.chatTextInput.style.height = 'auto';
-        dom.chatTextInput.style.height = (dom.chatTextInput.scrollHeight) + 'px';
+        dom.chatTextInput.style.height = `${dom.chatTextInput.scrollHeight}px`;
     });
 
+    if (recognition) {
+        dom.micButtonChat.addEventListener('click', () => {
+            if (isRecognizing) {
+                recognition.stop();
+                return;
+            }
+            recognition.start();
+        });
+        recognition.onstart = () => {
+            isRecognizing = true;
+            dom.micButtonChat.classList.add('active');
+        };
+        recognition.onend = () => {
+            isRecognizing = false;
+            dom.micButtonChat.classList.remove('active');
+        };
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            dom.chatTextInput.value = transcript;
+            sendMessage(transcript);
+        };
+        recognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+        };
+    } else {
+        dom.micButtonChat.disabled = true;
+    }
+
     dom.cameraButtonChat.addEventListener('click', () => {
-        const isVisible = dom.cameraOptionsMenu.style.display === 'block';
-        dom.cameraOptionsMenu.style.display = isVisible ? 'none' : 'block';
+        dom.cameraOptionsMenu.style.display = dom.cameraOptionsMenu.style.display === 'block' ? 'none' : 'block';
     });
     
     document.addEventListener('click', (e) => {
@@ -974,14 +860,21 @@ function setupEventListeners() {
         }
     });
 
-    dom.uploadPhotoOption.addEventListener('click', () => handleCamera('upload'));
-    dom.takePhotoOption.addEventListener('click', () => handleCamera('take'));
+    dom.uploadPhotoOption.addEventListener('click', () => dom.imageUploadInputChat.click());
+    dom.takePhotoOption.addEventListener('click', async () => {
+        showModal(dom.cameraModal);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            dom.cameraStreamElement.srcObject = stream;
+        } catch (err) {
+            appendMessage('error', 'Не удалось получить доступ к камере.');
+            closeModal(dom.cameraModal);
+        }
+    });
     dom.cancelCameraButton.addEventListener('click', () => {
         const stream = dom.cameraStreamElement.srcObject;
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        dom.cameraModal.style.display = 'none';
+        stream?.getTracks().forEach(track => track.stop());
+        closeModal(dom.cameraModal);
     });
     dom.capturePhotoButton.addEventListener('click', () => {
         const canvas = document.createElement('canvas');
@@ -989,18 +882,14 @@ function setupEventListeners() {
         canvas.height = dom.cameraStreamElement.videoHeight;
         canvas.getContext('2d').drawImage(dom.cameraStreamElement, 0, 0);
         canvas.toBlob(async (blob) => {
-            const data = await base64Encode(blob);
-            sendMessage('', [{ type: 'image/jpeg', data: data }]);
+            sendMessage('', [{ type: 'image/jpeg', data: await base64Encode(blob) }]);
         }, 'image/jpeg');
         dom.cancelCameraButton.click();
     });
 
     dom.imageUploadInputChat.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const data = await base64Encode(file);
-            sendMessage('', [{ type: file.type, data: data }]);
-        }
+        if (file) sendMessage('', [{ type: file.type, data: await base64Encode(file) }]);
     });
 
     dom.suggestionChipsContainer.addEventListener('click', (e) => {
@@ -1021,76 +910,184 @@ function setupEventListeners() {
     dom.todayButton.addEventListener('click', () => {
         currentDisplayedDate = new Date();
         renderCalendar(currentDisplayedDate);
+        renderDailyEvents(currentDisplayedDate);
     });
     
-    dom.chatReplyContextClose.addEventListener('click', clearReplyContext);
+    dom.calendarSelect.addEventListener('change', () => {
+        selectedCalendarId = dom.calendarSelect.value;
+        renderCalendar(currentDisplayedDate);
+        const selectedDate = dom.dailyEventsHeader.dataset.date ? new Date(dom.dailyEventsHeader.dataset.date) : currentDisplayedDate;
+        renderDailyEvents(selectedDate);
+    });
 
     // --- Modal Listeners ---
-    dom.settingsButton.addEventListener('click', showSettingsModal);
+    dom.settingsButton.addEventListener('click', () => showModal(dom.settingsModal));
     document.getElementById('close-settings-button').addEventListener('click', () => closeModal(dom.settingsModal));
     document.getElementById('close-instructions-button').addEventListener('click', () => closeModal(dom.googleClientIdInstructionsModal));
-    
+    dom.closeEventEditModalButton.addEventListener('click', () => closeModal(dom.eventEditModal));
+
     document.querySelectorAll('.open-client-id-instructions').forEach(el => {
         el.addEventListener('click', (e) => {
             e.preventDefault();
-            dom.googleClientIdInstructionsModal.style.display = 'flex';
-             setTimeout(() => dom.googleClientIdInstructionsModal.classList.add('visible'), 10);
+            showModal(dom.googleClientIdInstructionsModal);
         });
     });
 
     document.querySelectorAll('.copy-uri-button').forEach(button => {
         button.addEventListener('click', (e) => {
-            const targetId = e.currentTarget.dataset.target;
-            const textToCopy = document.getElementById(targetId).textContent;
+            const textToCopy = document.getElementById(e.currentTarget.dataset.target).textContent;
             navigator.clipboard.writeText(textToCopy).then(() => {
                 const icon = e.currentTarget.querySelector('.material-symbols-outlined');
                 const originalIcon = icon.textContent;
                 icon.textContent = 'check';
                 e.currentTarget.classList.add('copied');
-                setTimeout(() => {
-                    icon.textContent = originalIcon;
-                    e.currentTarget.classList.remove('copied');
-                }, 2000);
+                setTimeout(() => { icon.textContent = originalIcon; e.currentTarget.classList.remove('copied'); }, 2000);
             });
         });
     });
 
-    const saveApiKeysButton = document.getElementById('save-api-keys-button');
-    saveApiKeysButton.addEventListener('click', async () => {
-        const originalText = saveApiKeysButton.textContent;
-        saveApiKeysButton.disabled = true;
-        saveApiKeysButton.textContent = 'Проверка...';
-
+    document.getElementById('save-api-keys-button').addEventListener('click', async () => {
         const geminiKey = document.getElementById('settings-gemini-api-key').value.trim();
         const clientId = document.getElementById('settings-google-client-id').value.trim();
-
         if (!geminiKey || !clientId) {
             alert('Пожалуйста, введите оба ключа API.');
-            saveApiKeysButton.disabled = false;
-            saveApiKeysButton.textContent = originalText;
             return;
         }
-
-        saveApiKeys(geminiKey, clientId);
-        const success = await reconfigureClientsFromStorage(); 
-
-        saveApiKeysButton.disabled = false;
-        saveApiKeysButton.textContent = originalText;
-        
-        if (success) {
-            alert('Ключи сохранены. Теперь войдите в свой аккаунт Google в этом же окне.');
-        } else {
-            alert('Ключи сохранены, но не удалось их проверить. Убедитесь, что Client ID настроен правильно, и попробуйте войти в аккаунт.');
-        }
-        // Refresh the auth state in the modal after saving keys
-        updateUiForAuthState(false);
+        localStorage.setItem('geminiApiKey', geminiKey);
+        localStorage.setItem('googleClientId', clientId);
+        alert('Ключи сохранены. Страница будет перезагружена.');
+        window.location.reload();
     });
 
     const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-    weekdays.forEach(day => {
-        dom.calendarGridWeekdays.innerHTML += `<div class="weekday-header">${day}</div>`;
+    weekdays.forEach(day => dom.calendarGridWeekdays.innerHTML += `<div class="weekday-header">${day}</div>`);
+
+    dom.saveEventButton.addEventListener('click', saveEventChanges);
+    dom.attachFromDriveButton.addEventListener('click', showPicker);
+}
+
+// --- Event Editing and Picker Logic ---
+
+function showPicker() {
+    if (!pickerApiLoaded) {
+        alert("Google Picker API еще не загружен.");
+        return;
+    }
+    const token = gapi.client.getToken();
+    if (!token) {
+        alert("Необходима авторизация для использования Google Drive.");
+        return;
+    }
+
+    const view = new google.picker.View(google.picker.ViewId.DOCS);
+    const picker = new google.picker.PickerBuilder()
+        .enableFeature(google.picker.Feature.NAV_HIDDEN)
+        .setAppId(GOOGLE_CLIENT_ID.split('-')[0]) // Use numeric part of client ID
+        .setOAuthToken(token.access_token)
+        .addView(view)
+        .setCallback(pickerCallback)
+        .build();
+    picker.setVisible(true);
+}
+
+function pickerCallback(data) {
+    if (data[google.picker.Response.ACTION] == google.picker.Action.PICKED) {
+        const doc = data[google.picker.Response.DOCUMENTS][0];
+        const attachment = {
+            fileUrl: doc[google.picker.Document.URL],
+            title: doc[google.picker.Document.NAME],
+            mimeType: doc[google.picker.Document.MIME_TYPE],
+            iconUrl: doc[google.picker.Document.ICON_URL]
+        };
+        tempEventAttachments.push(attachment);
+        renderAttachments();
+    }
+}
+
+function renderAttachments() {
+    const list = document.getElementById('event-edit-attachments-list');
+    list.innerHTML = '';
+    tempEventAttachments.forEach(att => {
+        const li = document.createElement('li');
+        li.innerHTML = `<img src="${att.iconUrl}" width="16" height="16" alt=""> <a href="${att.fileUrl}" target="_blank">${att.title}</a>`;
+        list.appendChild(li);
     });
 }
+
+async function openEditEventModal(eventId) {
+    try {
+        const response = await gapi.client.calendar.events.get({ calendarId: selectedCalendarId, eventId: eventId });
+        const event = response.result;
+        
+        document.getElementById('event-edit-id').value = event.id;
+        document.getElementById('event-edit-summary').value = event.summary || '';
+        document.getElementById('event-edit-location').value = event.location || '';
+        document.getElementById('event-edit-description').value = event.description || '';
+        
+        const start = new Date(event.start.dateTime || event.start.date);
+        const end = new Date(event.end.dateTime || event.end.date);
+        
+        document.getElementById('event-edit-start-date').value = start.toISOString().split('T')[0];
+        document.getElementById('event-edit-start-time').value = event.start.dateTime ? start.toTimeString().substring(0,5) : '';
+        document.getElementById('event-edit-end-date').value = end.toISOString().split('T')[0];
+        document.getElementById('event-edit-end-time').value = event.end.dateTime ? end.toTimeString().substring(0,5) : '';
+
+        tempEventAttachments = event.attachments || [];
+        renderAttachments();
+        
+        showModal(dom.eventEditModal);
+    } catch (error) {
+        console.error("Error fetching event for edit:", error);
+        appendMessage('error', 'Не удалось загрузить данные события для редактирования.');
+    }
+}
+
+async function saveEventChanges() {
+    const eventId = document.getElementById('event-edit-id').value;
+    
+    const startDate = document.getElementById('event-edit-start-date').value;
+    const startTime = document.getElementById('event-edit-start-time').value;
+    const endDate = document.getElementById('event-edit-end-date').value;
+    const endTime = document.getElementById('event-edit-end-time').value;
+    
+    const resource = {
+        summary: document.getElementById('event-edit-summary').value,
+        location: document.getElementById('event-edit-location').value,
+        description: document.getElementById('event-edit-description').value,
+        start: {},
+        end: {},
+        attachments: tempEventAttachments
+    };
+    
+    if (startTime) {
+        resource.start.dateTime = new Date(`${startDate}T${startTime}`).toISOString();
+    } else {
+        resource.start.date = startDate;
+    }
+    
+    if (endTime) {
+        resource.end.dateTime = new Date(`${endDate}T${endTime}`).toISOString();
+    } else {
+        resource.end.date = endDate;
+    }
+
+    try {
+        await gapi.client.calendar.events.patch({
+            calendarId: selectedCalendarId,
+            eventId: eventId,
+            resource: resource
+        });
+        closeModal(dom.eventEditModal);
+        const eventDate = new Date(resource.start.dateTime || resource.start.date);
+        loadCalendarEvents(eventDate.getFullYear(), eventDate.getMonth());
+        renderDailyEvents(eventDate);
+        appendMessage('system', 'Событие успешно обновлено.');
+    } catch (error) {
+        console.error("Error updating event:", error);
+        appendMessage('error', 'Не удалось обновить событие.');
+    }
+}
+
 
 // --- Init ---
 initializeApp();

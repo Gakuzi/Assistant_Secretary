@@ -1,5 +1,4 @@
 
-
 @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap');
 
 :root {
@@ -29,6 +28,19 @@
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 
 body {
   font-family: var(--font-family);
@@ -167,6 +179,9 @@ body {
 /* --- Messages --- */
 .message-container {
     position: relative;
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .message-bubble {
@@ -177,37 +192,37 @@ body {
   line-height: 1.5;
   word-wrap: break-word;
   position: relative;
+  flex-grow: 1;
 }
 
-.message-reply-button {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    background-color: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: 50%;
-    width: 28px;
-    height: 28px;
+.message-actions {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
     opacity: 0;
-    transition: opacity 0.2s, box-shadow 0.2s;
-    box-shadow: var(--shadow-sm);
+    transition: opacity 0.2s;
 }
 
-.message-container:hover .message-reply-button {
+.message-container:hover .message-actions {
     opacity: 1;
 }
 
-.message-reply-button:hover {
+.message-action-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-color-secondary);
+    padding: 4px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.message-action-button .material-symbols-outlined {
+    font-size: 18px;
+}
+.message-action-button:hover {
     background-color: var(--light-gray-background);
 }
-.message-reply-button .material-symbols-outlined {
-    font-size: 18px;
-    color: var(--text-color-secondary);
-}
+
 
 .message-bubble.user {
   background-color: var(--system-message-background);
@@ -215,12 +230,11 @@ body {
   margin-left: auto;
   border-bottom-right-radius: 4px;
 }
-
-.message-bubble.user + .message-reply-button {
-    left: -14px;
+.message-container.user {
+    justify-content: flex-end;
 }
-.message-bubble.ai + .message-reply-button {
-    right: -14px;
+.message-container.user .message-actions {
+    order: -1;
 }
 
 
@@ -231,6 +245,11 @@ body {
   border-bottom-left-radius: 4px;
   max-width: 500px; /* Wider for cards */
 }
+.message-container.ai {
+    justify-content: flex-start;
+}
+
+
 .message-bubble.system, .message-bubble.error-message {
   background-color: var(--system-message-background);
   color: var(--text-color-secondary);
@@ -240,6 +259,10 @@ body {
   margin: 12px auto;
   padding: 8px 12px;
 }
+.message-container.system, .message-container.error-message {
+    justify-content: center;
+}
+
 .message-bubble.error-message {
   background-color: #fce8e6;
   color: var(--error-color);
@@ -257,6 +280,17 @@ body {
   font-weight: 500;
 }
 
+.message-editing-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    border-radius: var(--border-radius-md);
+    border: 1px solid var(--primary-color);
+    font-family: var(--font-family);
+    font-size: 1em;
+    line-height: 1.5;
+    resize: vertical;
+}
 
 /* --- Action Buttons & Inputs --- */
 .action-button {
@@ -404,6 +438,11 @@ body {
   color: var(--primary-color);
   background-color: var(--system-message-background);
 }
+#mic-button-chat.active {
+    color: var(--error-color);
+    background-color: #fce8e6;
+}
+
 .input-bar-button:disabled {
   color: #bdbdbd;
   cursor: not-allowed;
@@ -441,9 +480,20 @@ body {
 }
 .calendar-header {
     display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.month-navigation {
+    display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    width: 100%;
+}
+
+#current-month-year {
+    font-size: 1.1em;
+    font-weight: 500;
 }
 .calendar-controls {
     display: flex;
@@ -462,10 +512,16 @@ body {
 .calendar-controls .action-button:hover {
     background-color: var(--light-gray-background);
 }
-#current-month-year {
-    font-size: 1.1em;
-    font-weight: 500;
+#calendar-select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    background-color: var(--surface-color);
+    font-family: var(--font-family);
+    font-size: 0.9em;
 }
+
 .calendar-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -572,7 +628,6 @@ body {
 }
 
 #daily-events-list .event-item {
-  cursor: pointer;
   padding-left: 28px;
 }
 #daily-events-list .event-item:hover, #daily-events-list .event-item:focus-within {
@@ -735,13 +790,14 @@ body {
 .modal {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background-color: rgba(0, 0, 0, 0.5);
-  display: flex; align-items: center; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   z-index: 1000;
   opacity: 0;
   transition: opacity 0.3s ease;
   visibility: hidden;
 }
 .modal.visible {
+  display: flex;
   opacity: 1;
   visibility: visible;
 }
@@ -770,11 +826,36 @@ body {
   display: block; font-size: 0.9em; font-weight: 500;
   margin-bottom: 6px; color: var(--text-color-secondary);
 }
-.form-field input[type="text"], .form-field input[type="password"], .form-field input[type="email"] {
+.form-field input[type="text"], .form-field input[type="password"],
+.form-field input[type="email"], .form-field input[type="date"],
+.form-field input[type="time"], .form-field textarea {
   width: 100%; padding: 10px;
   border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);
   font-size: 1em; box-sizing: border-box;
+  font-family: var(--font-family);
 }
+.form-field-group {
+    display: flex;
+    gap: 16px;
+}
+.form-field-group .form-field {
+    flex: 1;
+}
+
+#event-edit-attachments-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+}
+#event-edit-attachments-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+}
+
+
 .form-field a {
   display: block;
   font-size: 0.8em;

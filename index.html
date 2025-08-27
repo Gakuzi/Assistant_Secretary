@@ -89,15 +89,21 @@
           <div id="calendar-view-container" style="display: none;">
               <div id="calendar-container">
                   <div class="calendar-header">
-                      <h2 id="current-month-year"></h2>
-                      <div class="calendar-controls">
-                        <button id="prev-month-button" class="icon-button" aria-label="Предыдущий месяц">
-                            <span class="material-symbols-outlined">chevron_left</span>
-                        </button>
-                        <button id="today-button" class="action-button">Сегодня</button>
-                        <button id="next-month-button" class="icon-button" aria-label="Следующий месяц">
-                            <span class="material-symbols-outlined">chevron_right</span>
-                        </button>
+                      <div class="month-navigation">
+                          <h2 id="current-month-year"></h2>
+                          <div class="calendar-controls">
+                              <button id="prev-month-button" class="icon-button" aria-label="Предыдущий месяц">
+                                  <span class="material-symbols-outlined">chevron_left</span>
+                              </button>
+                              <button id="today-button" class="action-button">Сегодня</button>
+                              <button id="next-month-button" class="icon-button" aria-label="Следующий месяц">
+                                  <span class="material-symbols-outlined">chevron_right</span>
+                              </button>
+                          </div>
+                      </div>
+                      <div class="calendar-selection">
+                          <label for="calendar-select" class="sr-only">Выбрать календарь</label>
+                          <select id="calendar-select"></select>
                       </div>
                   </div>
                   <div class="calendar-grid" id="calendar-grid-weekdays"></div>
@@ -153,6 +159,59 @@
              <a href="#" class="open-client-id-instructions">Получить Client ID</a>
           </div>
           <button id="save-api-keys-button" class="action-button primary" style="width: 100%; justify-content: center; margin-top: 10px;">Сохранить ключи</button>
+      </div>
+  </div>
+
+  <div id="event-edit-modal" class="modal" aria-hidden="true">
+      <div class="modal-content">
+          <button id="close-event-edit-modal-button" class="icon-button close-modal-button" aria-label="Закрыть редактор событий">
+              <span class="material-symbols-outlined">close</span>
+          </button>
+          <h2>Редактировать событие</h2>
+          <input type="hidden" id="event-edit-id">
+          <div class="form-field">
+              <label for="event-edit-summary">Название</label>
+              <input type="text" id="event-edit-summary">
+          </div>
+          <div class="form-field-group">
+            <div class="form-field">
+                <label for="event-edit-start-date">Дата начала</label>
+                <input type="date" id="event-edit-start-date">
+            </div>
+            <div class="form-field">
+                <label for="event-edit-start-time">Время начала</label>
+                <input type="time" id="event-edit-start-time">
+            </div>
+          </div>
+           <div class="form-field-group">
+            <div class="form-field">
+                <label for="event-edit-end-date">Дата окончания</label>
+                <input type="date" id="event-edit-end-date">
+            </div>
+            <div class="form-field">
+                <label for="event-edit-end-time">Время окончания</label>
+                <input type="time" id="event-edit-end-time">
+            </div>
+          </div>
+          <div class="form-field">
+              <label for="event-edit-location">Место</label>
+              <input type="text" id="event-edit-location">
+          </div>
+          <div class="form-field">
+              <label for="event-edit-description">Описание</label>
+              <textarea id="event-edit-description" rows="3"></textarea>
+          </div>
+          <div class="form-field">
+              <label>Приложения</label>
+              <ul id="event-edit-attachments-list"></ul>
+              <button id="attach-from-drive-button" class="action-button">
+                  <span class="material-symbols-outlined">attach_file</span>
+                  Прикрепить с Диска
+              </button>
+          </div>
+          <div class="modal-actions">
+              <button id="save-event-button" class="action-button primary">Сохранить</button>
+          </div>
       </div>
   </div>
   
