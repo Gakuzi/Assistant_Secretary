@@ -795,7 +795,7 @@ async function handleApiResponse(response) {
         const apiResponse = await processFunctionCall(name, args);
         
         chatHistory.push({
-            role: 'user',
+            role: 'tool',
             parts: [{
                 functionResponse: {
                     name,

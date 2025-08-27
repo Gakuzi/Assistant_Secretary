@@ -162,7 +162,7 @@
         <span class="material-symbols-outlined">close</span>
       </button>
       <h2>Как получить Google Client ID</h2>
-      <p>Следуйте этим шагам, чтобы создать Client ID для доступа к Google Календарю.</p>
+      <p>Следуйте этим шагам, чтобы создать Client ID для доступа к сервисам Google.</p>
       
       <div class="instructions-body">
         <ol>
@@ -179,8 +179,14 @@
             <p>В верхней части страницы нажмите на выпадающий список проектов и выберите существующий или создайте новый.</p>
           </li>
           <li>
-            <strong>Включите Google Calendar API.</strong>
-            <p>Перейдите в <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener noreferrer">"Библиотеку API"</a>, найдите <strong>"Google Calendar API"</strong> и нажмите <strong>"Enable"</strong> (Включить).</p>
+            <strong>Включите необходимые API.</strong>
+            <p>Перейдите в <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noopener noreferrer">"Библиотеку API"</a>, найдите и включите (нажмите "Enable") **каждый** из следующих API:</p>
+            <ul>
+                <li><strong>Google Calendar API</strong></li>
+                <li><strong>People API</strong></li>
+                <li><strong>Google Tasks API</strong></li>
+                <li><strong>Google Docs API</strong></li>
+            </ul>
           </li>
           <li>
             <strong>Настройте экран согласия OAuth.</strong>
