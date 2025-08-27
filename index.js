@@ -133,9 +133,10 @@ async function initializeGapiClient() {
              appendMessage('error', errorMessage);
         }
         
-        // Reset state
+        // Reset state and update UI to reflect failure
         gapiInited = false;
         gisInited = false;
+        updateUiForAuthState(false);
         return false; // Failure
     }
 }
@@ -169,6 +170,10 @@ async function reconfigureClientsFromStorage() {
  * Main entry point for the application.
  */
 async function initializeApp() {
+    // Run this first to ensure settings button is always active,
+    // even if GAPI initialization fails.
+    setupEventListeners();
+
     document.getElementById('instructions-js-origin').textContent = window.location.origin;
     document.getElementById('instructions-redirect-uri').textContent = window.location.origin;
 
@@ -179,8 +184,6 @@ async function initializeApp() {
     } else {
         showOnboardingModal();
     }
-
-    setupEventListeners();
 }
 
 
