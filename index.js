@@ -7,10 +7,10 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { marked } from 'marked';
 
-// --- Constants ---
-// ВНИМАНИЕ: Этот Client ID предназначен для демонстрационных целей.
-// Для реального приложения вы должны создать свой собственный в Google Cloud Console.
-const GOOGLE_CLIENT_ID = '30050849489-0v528d7bpt2l0375fca94892o73ivp97.apps.googleusercontent.com';
+// --- Configuration ---
+// ВАЖНО: Замените 'YOUR_GOOGLE_CLIENT_ID' на ваш собственный ID клиента OAuth 2.0
+const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
+const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
 
 // --- State Management ---
 const appState = {
@@ -57,22 +57,13 @@ const dom = {
     calendarGridDays: document.getElementById('calendar-grid-days'),
     dailyEventsHeader: document.getElementById('daily-events-header'),
     dailyEventsList: document.getElementById('daily-events-list'),
-    // Modals & Setup
+    // Modals
     settingsModal: document.getElementById('settings-modal'),
     closeSettingsButton: document.getElementById('close-settings-button'),
-    saveApiKeysButton: document.getElementById('save-api-keys-button'),
+    saveSettingsButton: document.getElementById('save-settings-button'),
     resetAppButton: document.getElementById('reset-app-button'),
     settingsGeminiApiKey: document.getElementById('settings-gemini-api-key'),
     authContainerSettings: document.getElementById('auth-container-settings'),
-    setupScreen: document.getElementById('setup-screen'),
-    setupStep1: document.getElementById('setup-step-1'),
-    setupStep2: document.getElementById('setup-step-2'),
-    setupStepError: document.getElementById('setup-step-error'),
-    setupErrorMessage: document.getElementById('setup-error-message'),
-    setupTryAgainButton: document.getElementById('setup-try-again-button'),
-    setupGeminiApiKey: document.getElementById('setup-gemini-api-key'),
-    setupVerifyApiKeyButton: document.getElementById('setup-verify-api-key-button'),
-    setupAuthButton: document.getElementById('setup-auth-button'),
     // Mobile Nav
     mobileTabBar: document.querySelector('.mobile-tab-bar'),
 };
@@ -100,38 +91,34 @@ async function initializeApp() {
     setupEventListeners();
     const geminiApiKey = localStorage.getItem('geminiApiKey');
 
-    if (GOOGLE_CLIENT_ID.startsWith('YOUR_GOOGLE_CLIENT_ID')) {
-        alert('Ошибка конфигурации: необходимо указать Google Client ID в файле index.js');
-        return;
-    }
-
     if (!geminiApiKey) {
-        // No key -> Start setup flow
-        showSetupScreen(true, 1);
         setMainUiEnabled(false);
+        showModal(dom.settingsModal);
     } else {
-        // Key exists -> Try to init Gemini, then Google
-        appState.ai = new GoogleGenAI({ apiKey: geminiApiKey });
-        dom.settingsGeminiApiKey.value = geminiApiKey;
-
-        await initializeGapiClient();
-
-        // GAPI is ready, but are we signed in? Let's check.
-        // gapi.client.getToken() will be null if not signed in from a previous session
-        if (gapi.client.getToken() && gapi.client.getToken().access_token) {
-            // Already signed in, full steam ahead
-            await updateUiForAuthState(true);
+        try {
+            appState.ai = new GoogleGenAI({ apiKey: geminiApiKey });
+            dom.settingsGeminiApiKey.value = geminiApiKey;
             setMainUiEnabled(true);
-        } else {
-            // Not signed in -> show step 2 of setup
-            showSetupScreen(true, 2);
+        } catch (error) {
+            console.error("Failed to initialize Gemini AI:", error);
+            alert("Не удалось инициализировать Gemini. Проверьте ваш API ключ.");
             setMainUiEnabled(false);
+            showModal(dom.settingsModal);
         }
     }
+    
+    // Always initialize Google services and show the sign-in button
+    await initializeGapiClient();
+    updateUiForAuthState(false); // Start in a logged-out state
 }
 
 async function initializeGapiClient() {
-    if (appState.gapiInited && appState.gisInited) return; // Don't re-initialize
+    if (appState.gapiInited && appState.gisInited) return;
+    if (CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID') {
+         console.warn("Пожалуйста, замените 'YOUR_GOOGLE_CLIENT_ID' в index.js на ваш реальный ID клиента Google.");
+         // We can still initialize, but auth will fail.
+    }
+        
     try {
         await gapiReady;
         await new Promise((resolve, reject) => gapi.load('client', { callback: resolve, onerror: reject }));
@@ -145,31 +132,15 @@ async function initializeGapiClient() {
         appState.gapiInited = true;
 
         await gisReady;
-        const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
         appState.tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID,
+            client_id: CLIENT_ID,
             scope: SCOPES,
             callback: handleTokenResponse,
         });
         appState.gisInited = true;
     } catch (error) {
         console.error("Google API initialization error:", error);
-        alert("Не удалось инициализировать Google API. Проверьте ваш Client ID и подключение к сети.");
-    }
-}
-
-async function verifyGeminiApiKey(apiKey) {
-    if (!apiKey) return false;
-    const tempAi = new GoogleGenAI({ apiKey });
-    try {
-        const response = await tempAi.models.generateContent({
-             model: 'gemini-2.5-flash',
-             contents: 'Say "Hello"',
-        });
-        return response && response.text && response.text.trim().length > 0;
-    } catch (error) {
-        console.error("Gemini API Key validation failed:", error);
-        return false;
+        alert("Не удалось инициализировать сервисы Google. Проверьте ваш Client ID в index.js и настройки в Google Cloud Console.");
     }
 }
 
@@ -194,8 +165,7 @@ async function generateDynamicSuggestions() {
 
     } catch (error) {
         console.error("Failed to generate dynamic suggestions:", error);
-        // Fallback to static suggestions
-         dom.suggestionChipsContainer.innerHTML = `
+        dom.suggestionChipsContainer.innerHTML = `
             <button class="suggestion-chip">Создать встречу на завтра в 10 утра</button>
             <button class="suggestion-chip">Какие у меня планы на пятницу?</button>
             <button class="suggestion-chip">Напомни мне позвонить в сервис в 15:00</button>
@@ -206,20 +176,11 @@ async function generateDynamicSuggestions() {
 
 // --- App Reset ---
 function resetApp() {
-    const confirmation = confirm("Вы уверены, что хотите сбросить все настройки? Все данные, включая API ключ и данные авторизации, будут удалены.");
+    const confirmation = confirm("Вы уверены, что хотите сбросить настройки? API ключ Gemini будет удален. Приложение будет перезагружено.");
     if (confirmation) {
-        try {
-            const token = gapi.client.getToken();
-            if (token && token.access_token) {
-                google.accounts.oauth2.revoke(token.access_token, () => {});
-            }
-        } catch (e) {
-            console.error("Error revoking token on reset:", e);
-        } finally {
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.reload();
-        }
+        localStorage.clear();
+        sessionStorage.clear();
+        window.location.reload();
     }
 }
 
@@ -228,10 +189,9 @@ function resetApp() {
 
 function handleAuthClick() {
     if (!appState.gisInited || !appState.tokenClient) {
-        alert("Клиент авторизации Google еще не инициализирован. Пожалуйста, подождите несколько секунд и попробуйте снова.");
+        alert("Клиент авторизации Google еще не инициализирован. Пожалуйста, подождите.");
         return;
     }
-    // 'consent' prompt is important to ensure the user gets a refresh token for offline access if needed
     appState.tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
@@ -240,9 +200,7 @@ function handleSignOutClick() {
     const token = gapi.client.getToken();
     if (token !== null) {
         google.accounts.oauth2.revoke(token.access_token, () => {
-            gapi.client.setToken(null);
-            appState.isSignedIn = false;
-            // Using reload is the simplest way to reset the app to a clean, logged-out state.
+             // Reload is the cleanest way to reset the app to a logged-out state.
             window.location.reload();
         });
     }
@@ -255,10 +213,8 @@ async function handleTokenResponse(response) {
         await updateUiForAuthState(false);
         return;
     }
-    // The response contains the access token. Set it for the gapi client to use.
+    // Set the token for the GAPI client. This token is NOT persisted across reloads.
     gapi.client.setToken(response);
-    showSetupScreen(false);
-    setMainUiEnabled(true);
     await updateUiForAuthState(true);
 }
 
@@ -270,7 +226,6 @@ async function updateUiForAuthState(isSignedIn) {
     
     if (isSignedIn) {
         try {
-            // Fetch user profile to display their name and picture
             const profile = await gapi.client.request({ path: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json' });
             const user = profile.result;
             // Header
@@ -296,11 +251,9 @@ async function updateUiForAuthState(isSignedIn) {
                 document.getElementById('user-dropdown').classList.toggle('show');
             });
             document.getElementById('sign-out-button-dropdown').addEventListener('click', handleSignOutClick);
-            // Close dropdown if clicked outside
             window.addEventListener('click', (e) => {
                 if (!dom.authStatusContainer.contains(e.target)) {
-                    const dropdown = document.getElementById('user-dropdown');
-                    if (dropdown) dropdown.classList.remove('show');
+                    document.getElementById('user-dropdown')?.classList.remove('show');
                 }
             });
             // Settings Modal
@@ -319,7 +272,7 @@ async function updateUiForAuthState(isSignedIn) {
             // Main UI
             dom.welcomeScreen.style.display = 'flex';
             dom.welcomeSubheading.textContent = `Здравствуйте, ${user.name.split(' ')[0]}! Чем могу помочь?`;
-            generateDynamicSuggestions(); // Generate AI-powered suggestions
+            generateDynamicSuggestions();
             dom.calendarLoginPrompt.style.display = 'none';
             dom.calendarViewContainer.style.display = 'grid';
             renderCalendar(appState.currentDisplayedDate);
@@ -330,10 +283,19 @@ async function updateUiForAuthState(isSignedIn) {
             handleSignOutClick(); // Force sign out on error
         }
     } else {
-        // This state is primarily handled by the setup screen now
-        const signInButtonHtml = `<button class="action-button primary"><span class="material-symbols-outlined">login</span> Войти через Google</button>`;
+        // Logged out state
+        const signInButtonHtml = `<button id="auth-button" class="action-button primary"><span class="material-symbols-outlined">login</span> Войти через Google</button>`;
+        dom.authStatusContainer.innerHTML = signInButtonHtml;
         dom.authContainerSettings.innerHTML = `<p>Войдите для доступа к календарю и задачам.</p>${signInButtonHtml}`;
-        dom.authContainerSettings.querySelector('button').onclick = handleAuthClick;
+        
+        document.querySelectorAll('#auth-button, #auth-container-settings button').forEach(btn => {
+            btn.onclick = handleAuthClick;
+        });
+
+        // Reset UI to logged-out state
+        dom.welcomeScreen.style.display = 'none';
+        dom.calendarLoginPrompt.style.display = 'flex';
+        dom.calendarViewContainer.style.display = 'none';
     }
 }
 
@@ -344,20 +306,6 @@ function setMainUiEnabled(enabled) {
         dom.chatInputContainer.classList.add('disabled');
     }
 }
-
-function showSetupScreen(show, stepOrError = 1) {
-    if (show) {
-        dom.setupStep1.classList.toggle('active', stepOrError === 1);
-        dom.setupStep2.classList.toggle('active', stepOrError === 2);
-        dom.setupStepError.classList.toggle('active', stepOrError === 'error');
-        dom.setupScreen.style.display = 'flex';
-        setTimeout(() => dom.setupScreen.classList.add('visible'), 10);
-    } else {
-        dom.setupScreen.classList.remove('visible');
-        setTimeout(() => dom.setupScreen.style.display = 'none', 300);
-    }
-}
-
 
 // --- UI Interaction ---
 
@@ -444,7 +392,7 @@ async function loadCalendarEvents(year, month) {
 
         response.result.items.forEach(event => {
             const startDate = new Date(event.start.dateTime || event.start.date);
-            if (startDate.getMonth() !== month) return; // Ensure event is in the current month view
+            if (startDate.getMonth() !== month) return;
             const dayOfMonth = startDate.getDate();
             const cell = dom.calendarGridDays.querySelector(`[data-day="${dayOfMonth}"]`);
             if (cell && !cell.querySelector('.event-dot')) {
@@ -517,8 +465,13 @@ function createEventElement(event) {
 async function sendMessage(text, images = []) {
     const textTrimmed = text.trim();
     if (!textTrimmed && images.length === 0) return;
-    if (!appState.ai || !appState.isSignedIn) {
-        appendMessage('error', 'Ассистент не настроен. Пожалуйста, завершите настройку в меню.');
+    if (!appState.ai) {
+        appendMessage('error', 'Ассистент не настроен. Пожалуйста, введите API ключ в настройках.');
+        showModal(dom.settingsModal);
+        return;
+    }
+     if (!appState.isSignedIn) {
+        appendMessage('error', 'Пожалуйста, войдите в аккаунт Google, чтобы использовать эту функцию.');
         return;
     }
 
@@ -600,19 +553,16 @@ async function sendMessage(text, images = []) {
 
         if (toolCalls && toolCalls.length > 0) {
             appendMessage('system', `Выполняю команду...`);
-            // Add model response to history for context, even if it's a tool call
             appState.chatHistory.push(modelResponse.candidates[0].content);
 
             for (const call of toolCalls) {
                 const functionName = call.functionCall.name;
                 const args = call.functionCall.args;
-                let result;
                 if (functionName === 'create_calendar_event') {
-                    result = await createCalendarEvent(args);
+                    await createCalendarEvent(args);
                 } else if (functionName === 'create_task') {
-                    result = await createTask(args);
+                    await createTask(args);
                 }
-                 // Potentially send result back to model in a future iteration
             }
         } else {
             const text = modelResponse.text;
@@ -667,27 +617,17 @@ async function createCalendarEvent(args) {
         
         renderCalendar(new Date(createdEvent.start.dateTime));
         renderDailyEvents(new Date(createdEvent.start.dateTime));
-        return { success: true, eventId: createdEvent.id };
 
     } catch (error) {
         console.error('Google Calendar API Error:', error);
-        const errorMessage = (error.result?.error?.message) || error.message;
-        appendMessage('error', `Не удалось создать событие: ${errorMessage}`);
-        return { success: false, error: errorMessage };
+        appendMessage('error', `Не удалось создать событие: ${(error.result?.error?.message) || error.message}`);
     }
 }
 
 async function createTask(args) {
     try {
-        const task = {
-            'title': args.title,
-            'notes': args.notes,
-            'due': args.due
-        };
-        const request = gapi.client.tasks.tasks.insert({
-            'tasklist': '@default',
-            'resource': task
-        });
+        const task = { 'title': args.title, 'notes': args.notes, 'due': args.due };
+        const request = gapi.client.tasks.tasks.insert({ 'tasklist': '@default', 'resource': task });
         const response = await request;
         const createdTask = response.result;
         
@@ -704,13 +644,10 @@ async function createTask(args) {
                 </a>
             </div>`;
         appendMessage('system', "Готово!", cardHtml);
-        return { success: true, taskId: createdTask.id };
 
     } catch (error) {
         console.error('Google Tasks API Error:', error);
-        const errorMessage = (error.result?.error?.message) || error.message;
-        appendMessage('error', `Не удалось создать задачу: ${errorMessage}`);
-        return { success: false, error: errorMessage };
+        appendMessage('error', `Не удалось создать задачу: ${(error.result?.error?.message) || error.message}`);
     }
 }
 
@@ -730,11 +667,7 @@ function appendMessage(type, text, content = '') {
     if (text) {
         const bubble = document.createElement('div');
         bubble.className = `message-bubble ${type}-bubble`;
-        if (type === 'model') {
-            bubble.innerHTML = marked.parse(text);
-        } else {
-            bubble.textContent = text;
-        }
+        bubble.innerHTML = type === 'model' ? marked.parse(text) : text;
         wrapper.appendChild(bubble);
     }
 
@@ -765,15 +698,12 @@ function setupEventListeners() {
     });
 
     dom.chatTextInput.addEventListener('input', () => {
-        const hasText = dom.chatTextInput.value.trim().length > 0;
-        dom.sendButtonChat.style.display = hasText ? 'flex' : 'none';
+        dom.sendButtonChat.style.display = dom.chatTextInput.value.trim().length > 0 ? 'flex' : 'none';
         dom.chatTextInput.style.height = 'auto';
         dom.chatTextInput.style.height = `${dom.chatTextInput.scrollHeight}px`;
     });
 
-    dom.sendButtonChat.addEventListener('click', () => {
-        sendMessage(dom.chatTextInput.value, appState.attachedImages);
-    });
+    dom.sendButtonChat.addEventListener('click', () => sendMessage(dom.chatTextInput.value, appState.attachedImages));
     
     // Mic and Camera
     if (recognition) {
@@ -796,56 +726,25 @@ function setupEventListeners() {
 
     // Settings Modal
     dom.settingsButton.addEventListener('click', () => showModal(dom.settingsModal));
-    dom.closeSettingsButton.addEventListener('click', () => closeModal(dom.settingsModal));
+    dom.closeSettingsButton.addEventListener('click', () => {
+        // Only close if the API key is set
+        if (localStorage.getItem('geminiApiKey')) {
+            closeModal(dom.settingsModal)
+        } else {
+            alert("Пожалуйста, введите Gemini API Key для продолжения.");
+        }
+    });
     dom.resetAppButton.addEventListener('click', resetApp);
-    dom.saveApiKeysButton.addEventListener('click', () => {
-        const apiKey = dom.settingsGeminiApiKey.value.trim();
-        if (!apiKey) {
-            alert('Пожалуйста, введите Gemini API Key.');
+    dom.saveSettingsButton.addEventListener('click', () => {
+        const geminiApiKey = dom.settingsGeminiApiKey.value.trim();
+        if (!geminiApiKey) {
+            alert('Пожалуйста, введите ваш Gemini API Key.');
             return;
         }
-        localStorage.setItem('geminiApiKey', apiKey);
-        appState.ai = new GoogleGenAI({ apiKey });
-        alert("Ключ API сохранен.");
-        closeModal(dom.settingsModal);
+        localStorage.setItem('geminiApiKey', geminiApiKey);
+        alert("Настройки сохранены. Приложение будет перезагружено.");
+        window.location.reload();
     });
-
-    // Setup Screen
-    dom.setupVerifyApiKeyButton.addEventListener('click', async (e) => {
-        const button = e.currentTarget;
-        const apiKey = dom.setupGeminiApiKey.value.trim();
-        if (!apiKey) {
-            alert('Пожалуйста, введите Gemini API Key.');
-            return;
-        }
-        
-        button.disabled = true;
-        button.textContent = 'Проверяем...';
-        
-        try {
-            const isValid = await verifyGeminiApiKey(apiKey);
-            if (isValid) {
-                localStorage.setItem('geminiApiKey', apiKey);
-                appState.ai = new GoogleGenAI({ apiKey });
-                dom.settingsGeminiApiKey.value = apiKey;
-                showSetupScreen(true, 2);
-                await initializeGapiClient();
-            } else {
-                dom.setupErrorMessage.textContent = 'Не удалось проверить ваш Gemini API ключ. Пожалуйста, убедитесь, что вы скопировали его правильно, и попробуйте снова.';
-                showSetupScreen(true, 'error');
-            }
-        } catch (error) {
-            console.error("Error during API key verification process:", error);
-            dom.setupErrorMessage.textContent = 'Произошла ошибка сети или непредвиденная проблема. Проверьте подключение к интернету и попробуйте снова.';
-            showSetupScreen(true, 'error');
-        } finally {
-            button.disabled = false;
-            button.textContent = 'Проверить и продолжить';
-        }
-    });
-    dom.setupAuthButton.addEventListener('click', handleAuthClick);
-    dom.setupTryAgainButton.addEventListener('click', () => showSetupScreen(true, 1));
-
 
     // Calendar Navigation
     dom.prevMonthButton.addEventListener('click', () => {
@@ -892,28 +791,17 @@ function toggleRecognition() {
 }
 
 function handleImageUpload(event) {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+    const file = event.target.files[0];
+    if (!file) return;
 
-    const file = files[0];
     const reader = new FileReader();
     reader.onloadend = () => {
         const base64Data = reader.result.split(',')[1];
-        appState.attachedImages.push({
-            data: base64Data,
-            type: file.type,
-        });
-        
-        const promptText = dom.chatTextInput.value.trim();
-        if(promptText === '') {
-            sendMessage('Опиши это изображение', appState.attachedImages);
-        } else {
-            // Append a message to notify user that image is ready to be sent with their text
-            appendMessage('system', `Прикреплено изображение: ${file.name}. Введите запрос или нажмите "Отправить".`);
-        }
+        appState.attachedImages.push({ data: base64Data, type: file.type });
+        appendMessage('system', `Прикреплено изображение: ${file.name}. Введите запрос или нажмите "Отправить".`);
     };
     reader.readAsDataURL(file);
-    event.target.value = ''; // Reset input to allow uploading the same file again
+    event.target.value = '';
 }
 
 // --- App Entry Point ---

@@ -72,7 +72,7 @@
       </div>
 
       <aside class="calendar-panel view" id="calendar-view" data-view="calendar">
-          <div id="calendar-login-prompt" class="panel-placeholder" style="display: none;">
+          <div id="calendar-login-prompt" class="panel-placeholder">
             <span class="material-symbols-outlined">lock</span>
             <p>Войдите в аккаунт Google, чтобы увидеть ваш календарь.</p>
           </div>
@@ -115,34 +115,6 @@
     </nav>
   </div>
 
-  <div id="setup-screen" style="display: none;">
-      <div class="setup-container">
-          <div id="setup-step-1" class="setup-step">
-              <span class="material-symbols-outlined setup-icon">key</span>
-              <h2>Шаг 1: Настройка Gemini API</h2>
-              <p>Для работы ассистента требуется ключ Gemini API. Получите его в <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> и вставьте ниже.</p>
-              <div class="form-field">
-                  <label for="setup-gemini-api-key">Gemini API Key</label>
-                  <input type="password" id="setup-gemini-api-key" placeholder="Вставьте ваш Gemini API Key">
-              </div>
-              <button id="setup-verify-api-key-button" class="action-button primary">Проверить и продолжить</button>
-          </div>
-          <div id="setup-step-2" class="setup-step">
-              <span class="material-symbols-outlined setup-icon">login</span>
-              <h2>Шаг 2: Вход в Google</h2>
-              <p>Ключ Gemini API успешно проверен! Теперь войдите в свой аккаунт Google, чтобы ассистент мог управлять вашим календарем, задачами и другими сервисами.</p>
-              <button id="setup-auth-button" class="action-button primary">Войти через Google</button>
-          </div>
-           <div id="setup-step-error" class="setup-step">
-              <span class="material-symbols-outlined setup-icon" style="color: var(--error-color);">error</span>
-              <h2>Ошибка проверки ключа</h2>
-              <p id="setup-error-message">Не удалось проверить ваш Gemini API ключ. Пожалуйста, убедитесь, что вы скопировали его правильно, и попробуйте снова.</p>
-              <button id="setup-try-again-button" class="action-button primary">Попробовать снова</button>
-          </div>
-      </div>
-  </div>
-
-
   <div id="settings-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" style="display:none;">
       <div class="modal-content">
           <button id="close-settings-button" class="icon-button close-modal-button" aria-label="Закрыть настройки">
@@ -155,16 +127,19 @@
              <!-- Auth status and controls will be dynamically added here -->
           </div>
           
-          <h4 style="margin-top: 24px;">Ключ API</h4>
+          <h4 style="margin-top: 24px;">Ключи API</h4>
           <div class="form-field">
             <label for="settings-gemini-api-key">Gemini API Key</label>
             <input type="password" id="settings-gemini-api-key" placeholder="Вставьте ваш Gemini API Key">
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить API Key</a>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить Gemini API Key</a>
           </div>
+          
+          <p class="settings-note">Для работы интеграции с Google необходимо указать ваш Client ID в файле <code>index.js</code>.</p>
+
 
           <div class="modal-actions">
             <button id="reset-app-button" class="action-button danger">Сбросить и начать заново</button>
-            <button id="save-api-keys-button" class="action-button primary">Сохранить</button>
+            <button id="save-settings-button" class="action-button primary">Сохранить</button>
           </div>
       </div>
   </div>
