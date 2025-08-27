@@ -114,7 +114,12 @@
       <!-- Step 2: API Keys -->
       <div id="onboarding-step-2" class="onboarding-step" style="display: none;">
         <h2>Настройка ключей API</h2>
-        <p>Для работы ассистента требуется ключ от Google. Он будет храниться только в вашем браузере и никуда не передается.</p>
+        <p>Для работы ассистента требуются ключи от Google и Gemini. Они будут храниться только в вашем браузере и никуда не передаются.</p>
+        <div class="form-field">
+          <label for="gemini-api-key-input">Gemini API Key</label>
+          <input type="password" id="gemini-api-key-input" placeholder="Вставьте ваш Gemini API Key">
+          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить API Key</a>
+        </div>
         <div class="form-field">
           <label for="google-client-id-input">Google Client ID</label>
           <input type="password" id="google-client-id-input" placeholder="Вставьте ваш Google Client ID">
@@ -168,6 +173,11 @@
           <button id="sign-out-button" class="action-button" style="display: none;">Выйти из аккаунта</button>
 
           <h4>Управление API-ключами</h4>
+          <div class="form-field">
+            <label for="settings-gemini-api-key">Gemini API Key</label>
+            <input type="password" id="settings-gemini-api-key" placeholder="Ваш Gemini API Key">
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить API Key</a>
+          </div>
           <div class="form-field">
             <label for="settings-google-client-id">Google Client ID</label>
             <input type="password" id="settings-google-client-id" placeholder="Ваш Google Client ID">

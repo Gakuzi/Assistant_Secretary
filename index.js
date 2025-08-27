@@ -9,9 +9,7 @@ import { GoogleGenAI } from '@google/genai';
 import { marked } from 'marked';
 
 // --- API Config ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-// Google Client ID for Calendar API is managed via UI and localStorage.
+let ai = null; // Will be initialized after reading from localStorage
 let GOOGLE_CLIENT_ID = null;
 
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
@@ -59,6 +57,7 @@ const settingsUserEmail = document.getElementById('settings-user-email');
 const signOutButton = document.getElementById('sign-out-button');
 const authContainerSettings = document.getElementById('auth-container-settings');
 const settingsGoogleClientIdInput = document.getElementById('settings-google-client-id');
+const settingsGeminiApiKeyInput = document.getElementById('settings-gemini-api-key');
 const saveApiKeysButton = document.getElementById('save-api-keys-button');
 
 
@@ -70,6 +69,7 @@ const nextButton2 = document.getElementById('onboarding-next-2');
 const backButton2 = document.getElementById('onboarding-back-2');
 const backButton3 = document.getElementById('onboarding-back-3');
 const googleClientIdInput = document.getElementById('google-client-id-input');
+const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
 const authContainerOnboarding = document.getElementById('auth-container');
 
 // Instructions Modal Elements
@@ -91,7 +91,7 @@ let imageBase64DataForNextSend = null;
 
 // --- Onboarding Flow ---
 function showOnboardingStep(stepNumber) {
-    onboardingSteps.forEach(step => (step).style.display = 'none');
+    onboardingSteps.forEach(step => step.style.display = 'none');
     const currentStep = document.getElementById(`onboarding-step-${stepNumber}`);
     if (currentStep) {
         currentStep.style.display = 'block';
@@ -108,13 +108,15 @@ function setupOnboarding() {
 
     nextButton2.onclick = () => {
         const googleId = googleClientIdInput.value.trim();
+        const geminiKey = geminiApiKeyInput.value.trim();
 
-        if (!googleId) {
-            alert('Пожалуйста, введите ваш Google Client ID.');
+        if (!googleId || !geminiKey) {
+            alert('Пожалуйста, введите оба ключа: Google Client ID и Gemini API Key.');
             return;
         }
 
         localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
+        localStorage.setItem('GEMINI_API_KEY', geminiKey);
         
         initializeApiClients();
         showOnboardingStep(3);
@@ -126,6 +128,18 @@ function setupOnboarding() {
 // --- Google API & Authentication ---
 function initializeApiClients() {
     GOOGLE_CLIENT_ID = localStorage.getItem('GOOGLE_CLIENT_ID');
+    const GEMINI_API_KEY = localStorage.getItem('GEMINI_API_KEY');
+
+    if (GEMINI_API_KEY) {
+        try {
+            ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        } catch (error) {
+            console.error("Failed to initialize GoogleGenAI:", error);
+            ai = null;
+        }
+    } else {
+        ai = null;
+    }
     
     gapiInited = false;
     gisInited = false;
@@ -435,7 +449,7 @@ function appendMessage(
 
   if (type === 'confirmation_request' && eventData) {
     isWaitingForConfirmation = true;
-    currentEventDraft = eventData; // Ensure draft is set before confirmation
+    currentEventDraft = eventData;
 
     const confirmationTitle = editModeEventId 
         ? 'Подтвердите изменения в событии:' 
@@ -620,6 +634,12 @@ async function handleUserInput(text) {
   chatTextInput.value = '';
   setLoading(true);
 
+  if (!ai) {
+    appendMessage('Ошибка: Gemini API Key не настроен. Пожалуйста, введите его в настройках (иконка шестеренки).', 'system', 'error');
+    setLoading(false);
+    return;
+  }
+
   if (isWaitingForConfirmation) {
       appendMessage('Понял, вношу изменения. Что еще?', 'ai');
       isWaitingForConfirmation = false; 
@@ -692,6 +712,7 @@ async function handleUserInput(text) {
 // --- Modals ---
 function openSettingsModal() {
     settingsGoogleClientIdInput.value = localStorage.getItem('GOOGLE_CLIENT_ID') || '';
+    settingsGeminiApiKeyInput.value = localStorage.getItem('GEMINI_API_KEY') || '';
     settingsModal.style.display = 'flex';
     settingsModal.setAttribute('aria-hidden', 'false');
 }
@@ -713,6 +734,7 @@ function openInstructionsModal(event) {
     if (jsOriginEl) jsOriginEl.textContent = origin;
     if (redirectUriEl) redirectUriEl.textContent = origin;
     
+    // This logic attaches the copy listeners every time, which is fine.
     instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
         button.addEventListener('click', async (e) => {
             const currentButton = e.currentTarget;
@@ -782,7 +804,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeApiClients();
 
     if (localStorage.getItem('onboardingComplete') !== 'true') {
-        if (!localStorage.getItem('GOOGLE_CLIENT_ID')) {
+        if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
             setupOnboarding();
         }
     }
@@ -811,14 +833,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     saveApiKeysButton.addEventListener('click', () => {
         const googleId = settingsGoogleClientIdInput.value.trim();
-        if (googleId) {
-            localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
-            initializeApiClients();
-            appendMessage('Ключи API сохранены.', 'system');
-            closeSettingsModal();
-        } else {
-            alert('Пожалуйста, введите Google Client ID.');
+        const geminiKey = settingsGeminiApiKeyInput.value.trim();
+
+        if (!googleId || !geminiKey) {
+            alert('Пожалуйста, введите оба ключа: Google Client ID и Gemini API Key.');
+            return;
         }
+
+        localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
+        localStorage.setItem('GEMINI_API_KEY', geminiKey);
+        initializeApiClients();
+        appendMessage('Ключи API сохранены.', 'system');
+        closeSettingsModal();
     });
     
     cameraButtonChat.addEventListener('click', () => {
