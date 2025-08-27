@@ -767,7 +767,7 @@ function appendMessage(
   
   messageBubble.innerHTML = mainContentHtml + interactiveHtml;
   messageContainer.appendChild(messageBubble);
-  messageContainer.innerHTML += replyButton;
+  messageContainer.appendChild(replyButton);
   
   messageList.appendChild(messageContainer);
 
@@ -1328,7 +1328,7 @@ document.addEventListener('DOMContentLoaded', () => {
     messageList.addEventListener('click', (e) => {
         const replyButton = e.target.closest('.message-reply-button');
         if (replyButton) {
-            const messageBubble = replyButton.previousElementSibling;
+            const messageBubble = replyButton.parentElement.querySelector('.message-bubble');
             replyContext = messageBubble.dataset.rawText;
             chatReplyContextText.textContent = replyContext;
             chatReplyContext.style.display = 'flex';

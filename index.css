@@ -209,20 +209,21 @@ body {
     color: var(--text-color-secondary);
 }
 
-.message-bubble.user .message-reply-button {
-    left: -14px;
-}
-.message-bubble.ai .message-reply-button {
-    right: -14px;
-}
-
-
 .message-bubble.user {
   background-color: var(--system-message-background);
   color: var(--text-color-primary);
   margin-left: auto;
   border-bottom-right-radius: 4px;
 }
+
+.message-bubble.user + .message-reply-button {
+    left: -14px;
+}
+.message-bubble.ai + .message-reply-button {
+    right: -14px;
+}
+
+
 .message-bubble.ai {
   background-color: var(--light-gray-background);
   color: var(--text-color-primary);
