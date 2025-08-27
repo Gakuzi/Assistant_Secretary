@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -22,21 +21,12 @@
     <header class="app-header">
       <div class="header-title">
         <span class="material-symbols-outlined header-logo">calendar_month</span>
-        <h1>Календарь-Ассистент</h1>
+        <h1>Ассистент</h1>
       </div>
       <div class="header-actions">
-        <div id="user-profile" style="display: none;">
-          <img id="user-avatar" src="" alt="User Avatar">
-          <span id="user-name"></span>
+        <div id="user-profile-menu">
+           <!-- Populated by JS -->
         </div>
-        <button id="auth-button-header" class="action-button primary" style="display: none;">
-            <span class="material-symbols-outlined">login</span>
-            Войти через Google
-        </button>
-        <button id="sign-out-button-header" class="action-button" style="display: none;">
-            Выйти
-            <span class="material-symbols-outlined">logout</span>
-        </button>
         <button id="settings-button" class="icon-button" aria-label="Настройки">
           <span class="material-symbols-outlined">settings</span>
         </button>
@@ -44,7 +34,7 @@
     </header>
 
     <main class="main-content">
-      <div class="chat-panel">
+      <div class="chat-panel view" id="chat-view" data-view="chat">
         <div id="message-list" role="log" aria-live="polite">
           <!-- Сообщения будут добавляться сюда -->
         </div>
@@ -66,11 +56,9 @@
         
         <div class="chat-input-container">
           <div id="chat-input-bar">
-            <div class="camera-button-container">
-              <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
+             <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
               </button>
-            </div>
             <input type="file" id="image-upload-input-chat" accept="image/*" style="display: none;">
             <textarea id="chat-text-input" placeholder="Спросите что-нибудь..." aria-label="Текстовый ввод для чата" rows="1"></textarea>
             <button id="mic-button-chat" class="input-bar-button" aria-label="Голосовой ввод">
@@ -80,9 +68,10 @@
         </div>
       </div>
 
-      <aside class="calendar-panel">
-          <div id="calendar-login-prompt">
-            <p>Войдите, чтобы увидеть ваш календарь.</p>
+      <aside class="calendar-panel view" id="calendar-view" data-view="calendar">
+          <div id="calendar-login-prompt" class="panel-placeholder">
+            <span class="material-symbols-outlined">lock</span>
+            <p>Войдите в аккаунт Google, чтобы увидеть ваш календарь.</p>
           </div>
           <div id="calendar-view-container" style="display: none;">
               <div id="calendar-container">
@@ -105,24 +94,33 @@
               </div>
               <div id="daily-events-container">
                   <h3 id="daily-events-header"></h3>
-                  <ul id="daily-events-list">
-                      <!-- События на выбранный день -->
-                  </ul>
+                  <ul id="daily-events-list"></ul>
               </div>
           </div>
       </aside>
     </main>
+    
+    <nav class="mobile-tab-bar">
+        <button class="tab-button active" data-view="chat">
+            <span class="material-symbols-outlined">chat</span>
+            <span>Чат</span>
+        </button>
+        <button class="tab-button" data-view="calendar">
+            <span class="material-symbols-outlined">calendar_month</span>
+            <span>Календарь</span>
+        </button>
+    </nav>
   </div>
 
-  <div id="settings-modal" class="modal" style="display:none;" aria-hidden="true">
-      <div class="modal-content settings-modal-content">
+  <div id="settings-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" style="display:none;">
+      <div class="modal-content">
           <button id="close-settings-button" class="icon-button close-modal-button" aria-label="Закрыть настройки">
               <span class="material-symbols-outlined">close</span>
           </button>
-          <h2>Настройки</h2>
+          <h2 id="settings-title">Настройки</h2>
           
           <h4>Интеграция с Google</h4>
-          <div id="auth-container-settings">
+          <div id="auth-container-settings" class="settings-auth-status">
              <!-- Auth status will be dynamically added here -->
           </div>
           
@@ -138,17 +136,17 @@
              <a href="#" class="open-client-id-instructions">Как получить Client ID?</a>
           </div>
           <div class="modal-actions">
-            <button id="save-api-keys-button" class="action-button primary">Сохранить ключи</button>
+            <button id="save-api-keys-button" class="action-button primary">Сохранить</button>
           </div>
       </div>
   </div>
   
-  <div id="google-client-id-instructions-modal" class="modal" style="display:none;" aria-hidden="true">
+  <div id="google-client-id-instructions-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="instructions-title" style="display:none;">
     <div class="modal-content instructions-modal-content">
       <button id="close-instructions-button" class="icon-button close-modal-button" aria-label="Закрыть инструкцию">
         <span class="material-symbols-outlined">close</span>
       </button>
-      <h2>Как получить Google Client ID</h2>
+      <h2 id="instructions-title">Как получить Google Client ID</h2>
       <div class="instructions-body">
         <ol>
           <li><strong>Откройте Google Cloud Console.</strong>
@@ -176,10 +174,8 @@
     function onGapiLoad() { window.gapiLoadedCallback && window.gapiLoadedCallback(); }
     function onGisLoad() { window.gisInitalisedCallback && window.gisInitalisedCallback(); }
   </script>
-  
   <script async defer src="https://apis.google.com/js/api.js" onload="onGapiLoad()"></script>
   <script async defer src="https://accounts.google.com/gsi/client" onload="onGisLoad()"></script>
-  
   <script type="module" src="index.js"></script>
 </body>
 </html>
