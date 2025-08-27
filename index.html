@@ -1,0 +1,200 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Календарь-Ассистент</title>
+  <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.sh/@google/genai@^0.15.0",
+        "marked": "https://esm.sh/marked@^15.0.8"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-title">
+        <span class="material-symbols-outlined header-logo">calendar_month</span>
+        <h1>Календарь-Ассистент</h1>
+      </div>
+      <div class="header-actions">
+        <div id="user-profile" style="display: none;">
+          <img id="user-avatar" src="" alt="User Avatar">
+          <span id="user-name"></span>
+        </div>
+        <button id="settings-button" class="icon-button" aria-label="Настройки">
+          <span class="material-symbols-outlined">settings</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="chat-panel">
+        <div id="message-list" role="log" aria-live="polite">
+          <!-- Сообщения будут добавляться сюда -->
+        </div>
+
+        <div id="welcome-screen">
+          <h2 id="welcome-greeting">Здравствуйте!</h2>
+          <p class="welcome-subheading">Войдите в свой аккаунт Google, чтобы начать управлять календарем.</p>
+          <div id="suggestion-chips-container">
+            <button class="suggestion-chip">Создать встречу на завтра</button>
+            <button class="suggestion-chip">Запланировать звонок</button>
+            <button class="suggestion-chip">Какая погода?</button>
+          </div>
+        </div>
+
+        <div id="quick-actions-bar" style="display: none;">
+            <button class="quick-action-chip" data-action="create">
+                <span class="material-symbols-outlined">add</span> Создать событие
+            </button>
+            <button class="quick-action-chip" data-action="today">
+                <span class="material-symbols-outlined">today</span> Расписание на сегодня
+            </button>
+            <button class="quick-action-chip" data-action="week">
+                <span class="material-symbols-outlined">date_range</span> Планы на неделю
+            </button>
+        </div>
+
+        <div id="loading-indicator" style="display: none;" aria-label="Загрузка">
+          <div class="spinner"></div>
+          <span>Обработка...</span>
+        </div>
+
+        <div id="chat-input-bar">
+          <div class="camera-button-container">
+            <button id="camera-button-chat" class="input-bar-button" aria-label="Прикрепить изображение">
+              <span class="material-symbols-outlined">add_photo_alternate</span>
+            </button>
+            <div id="camera-options-menu" class="camera-options-menu" style="display: none;">
+              <button id="take-photo-option" aria-label="Сделать фото">Сделать фото</button>
+              <button id="upload-photo-option" aria-label="Загрузить фото">Загрузить фото</button>
+            </div>
+          </div>
+          <input type="file" id="image-upload-input-chat" accept="image/*" style="display: none;">
+          <textarea id="chat-text-input" placeholder="Спросите что-нибудь..." aria-label="Текстовый ввод для чата" rows="1"></textarea>
+          <button id="mic-button-chat" class="input-bar-button" aria-label="Голосовой ввод">
+            <span class="material-symbols-outlined">mic</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="calendar-panel">
+        <div class="calendar-panel-header">
+          <h2>События</h2>
+          <button id="refresh-calendar-button" class="icon-button" aria-label="Обновить события">
+            <span class="material-symbols-outlined">refresh</span>
+          </button>
+        </div>
+        <div id="calendar-login-prompt" class="calendar-panel-body">
+          <p>Войдите, чтобы увидеть ваши события.</p>
+        </div>
+        <ul id="upcoming-events-list" class="calendar-panel-body" style="display: none;">
+          <!-- События календаря будут здесь -->
+        </ul>
+      </div>
+    </main>
+  </div>
+  
+  <div id="onboarding-modal" class="modal" style="display:none;" aria-hidden="true" aria-modal="true">
+    <div class="modal-content onboarding-content">
+      <!-- Step 1: Welcome -->
+      <div id="onboarding-step-1" class="onboarding-step">
+        <span class="material-symbols-outlined header-logo">calendar_month</span>
+        <h2>Добро пожаловать!</h2>
+        <p>Это ваш личный ассистент для управления Google Календарем. Чтобы начать, нужно настроить интеграцию. Это займет всего минуту.</p>
+        <button id="onboarding-next-1" class="action-button primary">Начать настройку</button>
+      </div>
+      <!-- Step 2: API Keys -->
+      <div id="onboarding-step-2" class="onboarding-step" style="display: none;">
+        <h2>Настройка ключей API</h2>
+        <p>Для работы ассистента требуются ключи от Google. Они будут храниться только в вашем браузере и никуда не передаются.</p>
+        <div class="form-field">
+          <label for="gemini-api-key-input">Gemini API Key</label>
+          <input type="password" id="gemini-api-key-input" placeholder="Вставьте ваш Gemini API Key">
+          <a href="https://aistudio.google.com/app/apikey" target="_blank">Получить ключ</a>
+        </div>
+        <div class="form-field">
+          <label for="google-client-id-input">Google Client ID</label>
+          <input type="password" id="google-client-id-input" placeholder="Вставьте ваш Google Client ID">
+           <a href="https://console.cloud.google.com/apis/credentials/oauthclient" target="_blank">Получить Client ID</a>
+        </div>
+        <div class="modal-actions">
+           <button id="onboarding-back-2" class="action-button">Назад</button>
+           <button id="onboarding-next-2" class="action-button primary">Сохранить и продолжить</button>
+        </div>
+      </div>
+      <!-- Step 3: Login -->
+      <div id="onboarding-step-3" class="onboarding-step" style="display: none;">
+        <h2>Последний шаг</h2>
+        <p>Отлично! Теперь осталось только войти в ваш аккаунт Google, чтобы предоставить ассистенту доступ к календарю.</p>
+        <div id="auth-container">
+            <!-- Auth buttons will be dynamically added here -->
+        </div>
+        <div class="modal-actions">
+           <button id="onboarding-back-3" class="action-button">Назад</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="camera-modal" class="modal" style="display:none;" aria-hidden="true">
+    <div class="modal-content">
+      <video id="camera-stream" width="320" height="240" autoplay playsinline aria-label="Видеопоток с камеры"></video>
+      <button id="capture-photo-button" class="action-button primary" aria-label="Сделать снимок">Сделать снимок</button>
+      <button id="cancel-camera-button" class="action-button" aria-label="Отменить съемку">Отмена</button>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal" style="display:none;" aria-hidden="true">
+      <div class="modal-content settings-modal-content">
+          <button id="close-settings-button" class="icon-button close-modal-button" aria-label="Закрыть настройки">
+              <span class="material-symbols-outlined">close</span>
+          </button>
+          <h2>Настройки</h2>
+          <div id="settings-user-profile" style="display: none;">
+              <img id="settings-user-avatar" src="" alt="User Avatar">
+              <div id="settings-user-info">
+                  <span id="settings-user-name"></span>
+                  <span id="settings-user-email"></span>
+              </div>
+          </div>
+          <h4>Интеграция с Google</h4>
+          <div id="auth-container-settings">
+            <!-- Auth buttons will be dynamically added here for settings -->
+          </div>
+          <button id="sign-out-button" class="action-button" style="display: none;">Выйти из аккаунта</button>
+
+          <h4>Управление API-ключами</h4>
+          <div class="form-field">
+            <label for="settings-gemini-api-key">Gemini API Key</label>
+            <input type="password" id="settings-gemini-api-key" placeholder="Ваш Gemini API Key">
+          </div>
+          <div class="form-field">
+            <label for="settings-google-client-id">Google Client ID</label>
+            <input type="password" id="settings-google-client-id" placeholder="Ваш Google Client ID">
+          </div>
+          <button id="save-api-keys-button" class="action-button primary" style="width: 100%; justify-content: center; margin-top: 10px;">Сохранить ключи</button>
+      </div>
+  </div>
+
+  <!-- Create global callbacks that dispatch events for the module to hear -->
+  <script>
+    function gapiLoaded() { document.dispatchEvent(new Event('gapiLoaded')); }
+    function gisInitalised() { document.dispatchEvent(new Event('gisInitalised')); }
+  </script>
+  
+  <!-- Statically load Google API scripts. The onload callbacks will trigger initialization. -->
+  <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+  <script async defer src="https://accounts.google.com/gsi/client" onload="gisInitalised()"></script>
+  
+  <script type="module" src="index.tsx"></script>
+</body>
+</html>
