@@ -277,13 +277,13 @@
 
   <!-- Create global callbacks that dispatch events for the module to hear -->
   <script>
-    function gapiLoaded() { document.dispatchEvent(new Event('gapiLoaded')); }
-    function gisInitalised() { document.dispatchEvent(new Event('gisInitalised')); }
+    function onGapiLoad() { window.gapiLoadedCallback && window.gapiLoadedCallback(); }
+    function onGisLoad() { window.gisInitalisedCallback && window.gisInitalisedCallback(); }
   </script>
   
   <!-- Statically load Google API scripts. The onload callbacks will trigger initialization. -->
-  <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
-  <script async defer src="https://accounts.google.com/gsi/client" onload="gisInitalised()"></script>
+  <script async defer src="https://apis.google.com/js/api.js" onload="onGapiLoad()"></script>
+  <script async defer src="https://accounts.google.com/gsi/client" onload="onGisLoad()"></script>
   
   <script type="module" src="index.js"></script>
 </body>

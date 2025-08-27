@@ -1,3 +1,4 @@
+
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -23,6 +24,11 @@ let tokenClient;
 let gapiInited = false;
 let gisInited = false;
 let pickerApiLoaded = false;
+
+// Promise-based script loading to prevent race conditions
+const gapiReady = new Promise(resolve => { window.gapiLoadedCallback = resolve; });
+const gisReady = new Promise(resolve => { window.gisInitalisedCallback = resolve; });
+
 
 // --- DOM Elements ---
 const messageList = document.getElementById('message-list');
@@ -140,7 +146,7 @@ function setupOnboarding() {
         localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
         localStorage.setItem('GEMINI_API_KEY', geminiKey);
         
-        initializeApiClients();
+        reconfigureClientsFromStorage();
         showOnboardingStep(3);
     };
 
@@ -182,44 +188,40 @@ async function handleTokenResponse(resp) {
     closeSettingsModal();
 }
 
-function initializeApiClients() {
+function reconfigureClientsFromStorage() {
     GOOGLE_CLIENT_ID = localStorage.getItem('GOOGLE_CLIENT_ID');
-    const GEMINI_API_KEY = localStorage.getItem('GEMINI_API_KEY');
+    const geminiKey = localStorage.getItem('GEMINI_API_KEY');
 
-    if (GEMINI_API_KEY && !ai) {
-        try {
-            ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-        } catch (error) {
-            console.error("Failed to initialize GoogleGenAI:", error);
-            ai = null;
-        }
+    // Configure Gemini
+    if (geminiKey) {
+        try { ai = new GoogleGenAI({ apiKey: geminiKey }); } catch (e) { console.error(e); ai = null; }
+    } else {
+        ai = null;
     }
-    
-    if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID && !gisInited) {
+
+    // Configure Google Identity Services (for Auth)
+    if (GOOGLE_CLIENT_ID && typeof google !== 'undefined') {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
             callback: handleTokenResponse,
         });
         gisInited = true;
-        
-        tokenClient.requestAccessToken({ prompt: 'none' });
+    } else {
+        tokenClient = null;
+        gisInited = false;
     }
+
+    // Update UI elements like the sign-in button
     maybeEnableAuthUI();
+    
+    // Update the signed-in status based on whether we have a token.
+    updateSignInStatus(!!gapi.client.getToken());
 }
 
-
-async function initializeGapiClient() {
-  await gapi.client.init({
-    discoveryDocs: DISCOVERY_DOCS,
-  });
-  gapiInited = true;
-  gapi.load('picker', () => { pickerApiLoaded = true; });
-  maybeEnableAuthUI();
-}
 
 function maybeEnableAuthUI() {
-  if (gapiInited && gisInited && GOOGLE_CLIENT_ID) {
+  if (gapiInited && GOOGLE_CLIENT_ID) { // gisInited is implicitly true if tokenClient exists
     const signInButtonHtml = `<button class="action-button primary">Войти через Google</button>`;
     
     authContainerOnboarding.innerHTML = signInButtonHtml;
@@ -236,7 +238,7 @@ function maybeEnableAuthUI() {
 function handleAuthClick() {
   if (!gisInited || !tokenClient) {
     console.error("Google Identity Services client not initialized.");
-    appendMessage("Ошибка входа: сервис аутентификации еще не готов.", 'system', 'error');
+    appendMessage("Ошибка входа: сервис аутентификации еще не готов. Возможно, неверный Client ID.", 'system', 'error');
     return;
   }
   
@@ -1190,15 +1192,40 @@ function closeCameraModal() {
 }
 
 // --- App Initialization & Event Listeners ---
+async function initializeApp() {
+    // Wait for both Google scripts to be loaded into the page.
+    // This is crucial to prevent race conditions.
+    try {
+        await Promise.all([gapiReady, gisReady]);
+    } catch (error) {
+        console.error("Fatal error loading Google scripts:", error);
+        appendMessage('Не удалось загрузить необходимые компоненты Google. Пожалуйста, проверьте ваше интернет-соединение и перезагрузите страницу.', 'system', 'error');
+        return;
+    }
 
-// Listen for the Google API scripts to load before trying to use them.
-document.addEventListener('gapiLoaded', () => gapi.load('client', initializeGapiClient));
-document.addEventListener('gisInitalised', initializeApiClients);
 
-// Check if API keys are present. If not, start the onboarding flow.
-if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
-    setupOnboarding();
+    // Now that scripts are loaded, we can initialize the GAPI client.
+    // This part does not depend on user API keys.
+    await new Promise(resolve => gapi.load('client', resolve));
+    await gapi.client.init({ discoveryDocs: DISCOVERY_DOCS });
+    gapiInited = true;
+    gapi.load('picker', () => { pickerApiLoaded = true; });
+
+    // This function will set up Gemini and GIS clients based on stored keys.
+    reconfigureClientsFromStorage();
+    
+    // Attempt a silent sign-in if the GIS client was configured.
+    if (tokenClient) {
+        tokenClient.requestAccessToken({ prompt: 'none' });
+    }
+    
+    // If keys are missing, start the onboarding flow. The UI for this is handled
+    // by reconfigureClientsFromStorage, which will leave the auth button visible.
+    if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
+        setupOnboarding();
+    }
 }
+
 
 selectedDate.setHours(0, 0, 0, 0);
 
@@ -1227,6 +1254,7 @@ micButtonChat.addEventListener('click', () => {
 signOutButton.addEventListener('click', handleSignOutClick);
 
 saveApiKeysButton.addEventListener('click', () => {
+    const oldClientId = localStorage.getItem('GOOGLE_CLIENT_ID');
     const googleId = settingsGoogleClientIdInput.value.trim();
     const geminiKey = settingsGeminiApiKeyInput.value.trim();
 
@@ -1234,11 +1262,19 @@ saveApiKeysButton.addEventListener('click', () => {
         alert('Пожалуйста, введите оба ключа: Google Client ID и Gemini API Key.');
         return;
     }
+    
+    const clientIdChanged = oldClientId !== googleId;
 
     localStorage.setItem('GOOGLE_CLIENT_ID', googleId);
     localStorage.setItem('GEMINI_API_KEY', geminiKey);
-    initializeApiClients();
-    appendMessage('Ключи API сохранены.', 'system');
+
+    // If client ID changed, the old token is invalid. Force sign out by clearing the token.
+    if (clientIdChanged && gapi.client.getToken()) {
+        gapi.client.setToken(null);
+    }
+
+    reconfigureClientsFromStorage();
+    appendMessage('Ключи API сохранены. Если вы сменили Client ID, вам потребуется снова войти.', 'system');
     closeSettingsModal();
 });
 
@@ -1385,3 +1421,6 @@ instructionsModal.querySelectorAll('.copy-uri-button').forEach(button => {
         }
     });
 });
+
+// Start the application
+initializeApp();
