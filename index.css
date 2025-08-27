@@ -428,9 +428,17 @@ body {
 .camera-options-menu button:hover { background-color: var(--light-gray-background); }
 
 /* --- New Calendar Panel --- */
+#calendar-view-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
 #calendar-container {
     padding: 24px;
     border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 .calendar-header {
     display: flex;
@@ -505,6 +513,10 @@ body {
     margin: 24px 0 16px 0;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    background-color: var(--background-color);
+    z-index: 1;
 }
 #daily-events-list {
     list-style: none;
@@ -524,7 +536,7 @@ body {
 
 .event-item, .event-card-in-chat, .confirmation-card {
   position: relative;
-  padding: 16px;
+  padding: 12px;
   margin-bottom: 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
@@ -610,12 +622,19 @@ body {
     text-decoration: underline;
 }
 
-.event-item-actions, .event-card-actions {
+.event-item-actions {
   display: flex;
-  flex-direction: column;
   gap: 8px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
+
+.event-item:hover .event-item-actions,
+.event-item:focus-within .event-item-actions {
+    opacity: 1;
+}
+
 .event-action-button {
   background: none;
   border: 1px solid transparent;

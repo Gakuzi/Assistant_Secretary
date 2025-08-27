@@ -147,7 +147,41 @@ function setupOnboarding() {
     backButton3.onclick = () => showOnboardingStep(2);
 }
 
+
 // --- Google API & Authentication ---
+async function handleTokenResponse(resp) {
+    if (resp.error !== undefined) {
+        if (resp.error !== 'immediate_failed') {
+             console.error('Google token client error:', resp);
+        }
+        updateSignInStatus(false);
+        return;
+    }
+    
+    gapi.client.setToken({ access_token: resp.access_token });
+
+    let userInfo = null;
+    try {
+        const userInfoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { 'Authorization': `Bearer ${resp.access_token}` }
+        });
+        if (!userInfoResp.ok) throw new Error(`Failed to fetch user info: ${userInfoResp.statusText}`);
+        userInfo = await userInfoResp.json();
+    } catch (error) {
+        console.error("Error fetching user info:", error);
+        appendMessage('Не удалось загрузить информацию о вашем профиле Google.', 'system', 'error');
+    }
+
+    updateSignInStatus(true, userInfo);
+    await listUserCalendars();
+    
+    if (localStorage.getItem('onboardingComplete') !== 'true') {
+        localStorage.setItem('onboardingComplete', 'true');
+        closeModal(onboardingModal);
+    }
+    closeSettingsModal();
+}
+
 function initializeApiClients() {
     GOOGLE_CLIENT_ID = localStorage.getItem('GOOGLE_CLIENT_ID');
     const GEMINI_API_KEY = localStorage.getItem('GEMINI_API_KEY');
@@ -163,17 +197,21 @@ function initializeApiClients() {
         ai = null;
     }
     
-    gapiInited = false;
-    gisInited = false;
+    // Check if gisInited to avoid re-initializing on hot reloads or multiple calls
+    if (gisInited) return;
 
-    if (typeof gapi !== 'undefined') gapi.load('client', initializeGapiClient);
     if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID) {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
-            callback: '', // defined later
+            callback: handleTokenResponse,
         });
         gisInited = true;
+        
+        // Attempt to restore session silently
+        if (localStorage.getItem('onboardingComplete') === 'true') {
+            tokenClient.requestAccessToken({ prompt: 'none' });
+        }
     }
     maybeEnableAuthUI();
 }
@@ -209,38 +247,7 @@ function handleAuthClick() {
     appendMessage("Ошибка входа: сервис аутентификации еще не готов.", 'system', 'error');
     return;
   }
-  tokenClient.callback = async (resp) => {
-    if (resp.error !== undefined) {
-      console.error('Google token client error:', resp);
-      appendMessage('Не удалось войти в Google. Пожалуйста, попробуйте еще раз.', 'system', 'error');
-      updateSignInStatus(false);
-      return;
-    }
-    
-    gapi.client.setToken({ access_token: resp.access_token });
-
-    let userInfo = null;
-    try {
-      const userInfoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { 'Authorization': `Bearer ${resp.access_token}` }
-      });
-      if (!userInfoResp.ok) throw new Error(`Failed to fetch user info: ${userInfoResp.statusText}`);
-      userInfo = await userInfoResp.json();
-    } catch (error) {
-      console.error("Error fetching user info:", error);
-      appendMessage('Не удалось загрузить информацию о вашем профиле Google.', 'system', 'error');
-    }
-
-    updateSignInStatus(true, userInfo);
-    await listUserCalendars();
-    
-    if (localStorage.getItem('onboardingComplete') !== 'true') {
-        localStorage.setItem('onboardingComplete', 'true');
-        closeModal(onboardingModal);
-    }
-    closeSettingsModal();
-  };
-
+  
   if (gapi.client.getToken() === null) {
     tokenClient.requestAccessToken({ prompt: 'consent' });
   } else {
@@ -374,9 +381,10 @@ function renderEventItem(event) {
     const timeString = event.start?.dateTime ? startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'Весь день';
     
     const calendarColor = event.calendar?.backgroundColor || '#039be5';
+    const htmlLink = event.htmlLink;
 
     return `
-      <li class="event-item" data-event-id="${event.id}" data-calendar-id="${event.calendar.id}" role="button" tabindex="0" aria-label="Событие: ${event.summary}">
+      <li class="event-item" data-event-id="${event.id}" data-calendar-id="${event.calendar.id}" tabindex="0" aria-label="Событие: ${event.summary}">
         <div class="event-color-indicator" style="background-color: ${calendarColor};"></div>
         <div class="event-details">
           <h3 class="event-item-title">${event.summary || '(Без названия)'}</h3>
@@ -384,6 +392,14 @@ function renderEventItem(event) {
               <span class="material-symbols-outlined">schedule</span>
               ${timeString}
           </p>
+        </div>
+        <div class="event-item-actions">
+           <button class="event-action-button edit-event-btn" aria-label="Редактировать событие">
+               <span class="material-symbols-outlined">edit</span>
+           </button>
+           ${htmlLink ? `<a href="${htmlLink}" target="_blank" rel="noopener noreferrer" class="event-action-button" aria-label="Открыть в Google Календаре">
+               <span class="material-symbols-outlined">open_in_new</span>
+           </a>` : ''}
         </div>
       </li>
     `;
@@ -396,11 +412,9 @@ function displayEventsForDate(date) {
     dailyEventsList.innerHTML = '';
     
     const day = date.getDate();
-    if (eventsByDay[day]) {
+    if (eventsByDay[day] && eventsByDay[day].length > 0) {
         eventsByDay[day].sort((a, b) => new Date(a.start.dateTime || a.start.date) - new Date(b.start.dateTime || b.start.date));
-        eventsByDay[day].forEach(event => {
-            dailyEventsList.innerHTML += renderEventItem(event);
-        });
+        dailyEventsList.innerHTML = eventsByDay[day].map(renderEventItem).join('');
     } else {
         dailyEventsList.innerHTML = '<li>Нет запланированных событий.</li>';
     }
@@ -1319,9 +1333,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     dailyEventsList.addEventListener('click', (e) => {
         const eventItem = e.target.closest('.event-item');
-        if (eventItem) {
-            handleEditEventStart(eventItem.dataset.calendarId, eventItem.dataset.eventId);
+        if (!eventItem) return;
+
+        // If an action link was clicked, let the browser handle it
+        if (e.target.closest('a.event-action-button')) {
+            return;
         }
+
+        // If the edit button or any other part of the item is clicked, trigger edit
+        handleEditEventStart(eventItem.dataset.calendarId, eventItem.dataset.eventId);
     });
 
     // Reply listeners
