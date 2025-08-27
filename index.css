@@ -288,6 +288,33 @@ body {
   border-radius: var(--border-radius-sm); margin-top: 12px;
 }
 
+/* --- Google Drive Button --- */
+.drive-attach-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 16px;
+    border: 1px solid var(--border-color);
+    background-color: var(--surface-color);
+    color: var(--text-color-primary);
+    border-radius: var(--border-radius-lg);
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+.drive-attach-button:hover {
+    background-color: var(--light-gray-background);
+    border-color: #c4c7c5;
+    box-shadow: var(--shadow-sm);
+}
+.drive-attach-button img {
+    width: 18px;
+    height: 18px;
+}
+
+
 /* --- Input Bar --- */
 #chat-input-bar {
   display: flex;

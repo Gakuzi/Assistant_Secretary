@@ -17,11 +17,12 @@ const DISCOVERY_DOCS = [
     "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
     "https://www.googleapis.com/discovery/v1/apis/people/v1/rest"
 ];
-const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly";
+const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/drive.readonly";
 
 let tokenClient;
 let gapiInited = false;
 let gisInited = false;
+let pickerApiLoaded = false;
 
 // --- DOM Elements ---
 const messageList = document.getElementById('message-list');
@@ -169,6 +170,7 @@ async function initializeGapiClient() {
     discoveryDocs: DISCOVERY_DOCS,
   });
   gapiInited = true;
+  gapi.load('picker', () => { pickerApiLoaded = true; });
   maybeEnableAuthUI();
 }
 
@@ -515,6 +517,43 @@ async function checkForConflicts(event, eventIdToIgnore) {
     }
 }
 
+// --- Google Drive Picker ---
+function createPicker() {
+    if (!pickerApiLoaded || !gapi.client.getToken()) {
+        appendMessage('Ошибка: API для выбора файлов еще не загружен или вы не авторизованы.', 'system', 'error');
+        return;
+    }
+
+    const view = new google.picker.View(google.picker.ViewId.DOCS);
+    view.setMimeTypes("application/vnd.google-apps.document,application/vnd.google-apps.spreadsheet,application/vnd.google-apps.presentation,application/pdf");
+
+    const picker = new google.picker.PickerBuilder()
+        .enableFeature(google.picker.Feature.NAV_HIDDEN)
+        .setAppId(GOOGLE_CLIENT_ID.split('-')[0]) // App ID is the project number
+        .setOAuthToken(gapi.client.getToken().access_token)
+        .addView(view)
+        .addView(new google.picker.DocsUploadView())
+        .setCallback(pickerCallback)
+        .build();
+    picker.setVisible(true);
+}
+
+function pickerCallback(data) {
+    if (data.action === google.picker.Action.PICKED) {
+        const file = data.docs[0];
+        const fileName = file.name;
+        const fileUrl = file.url;
+
+        if (currentEventDraft) {
+            currentEventDraft.description = (currentEventDraft.description || '') + `\n\nПрикрепленный файл: ${fileName}\n${fileUrl}`;
+            appendMessage(`Файл "${fileName}" прикреплен.`, 'system');
+            handleUserInput('Файл прикреплен, подтверди создание события');
+        } else {
+            appendMessage(`Вы выбрали файл: ${fileName}. Теперь создайте событие, к которому его нужно прикрепить.`, 'ai');
+        }
+    }
+}
+
 // --- Speech Recognition ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
@@ -599,7 +638,7 @@ function renderEventCard(eventData, isConfirmation = false) {
             ${eventData.description ? `
             <p class="event-item-description">
                 <span class="material-symbols-outlined">notes</span>
-                ${eventData.description.replace(/\n/g, '<br>')}
+                ${marked.parse(eventData.description)}
             </p>` : ''}
             ${attendees.length > 0 ? `<div class="event-item-attendees">${attendeesHtml}</div>` : ''}
         </div>
@@ -672,6 +711,15 @@ function appendMessage(
             <button class="cancel-event-action action-button">Отмена</button>
         </div></div>`;
         break;
+      
+    case 'suggestion':
+        if(data?.suggestion === 'ADD_DRIVE_FILE') {
+            interactiveHtml += `<button class="drive-attach-button">
+                <img src="https://www.google.com/images/branding/product/2x/drive_32dp.png" alt="Google Drive icon" />
+                Прикрепить с Google Диска
+            </button>`;
+        }
+        break;
   }
   
   messageBubble.innerHTML = mainContentHtml + interactiveHtml;
@@ -704,6 +752,8 @@ function appendMessage(
             deleteCalendarEvent(card.dataset.calendarId, card.dataset.eventId);
         }
       });
+  } else if (type === 'suggestion' && data?.suggestion === 'ADD_DRIVE_FILE') {
+      messageBubble.querySelector('.drive-attach-button')?.addEventListener('click', createPicker);
   }
 
 
@@ -739,6 +789,9 @@ async function processAiResponse(parsedData) {
 
       if (parsedData.followUpQuestion) {
         appendMessage(parsedData.followUpQuestion, 'ai');
+        if(parsedData.suggestion){
+            appendMessage(null, 'ai', 'suggestion', { suggestion: parsedData.suggestion });
+        }
       } else {
         const conflicts = await checkForConflicts(currentEventDraft, editModeEventId);
         if (conflicts.length > 0) {
@@ -754,9 +807,14 @@ async function processAiResponse(parsedData) {
     case 'GENERAL_QUERY':
       if (parsedData.generalResponse) {
         appendMessage(parsedData.generalResponse, 'ai');
-      } else {
+      } else if (!parsedData.suggestion) {
         appendMessage('Не удалось получить осмысленный ответ. Попробуйте переформулировать.', 'ai', 'error');
       }
+
+      if (parsedData.suggestion) {
+        appendMessage(null, 'ai', 'suggestion', { suggestion: parsedData.suggestion });
+      }
+
       if (!parsedData.isCalendarRelated) {
           currentEventDraft = null;
           editModeEventId = null;
@@ -979,28 +1037,30 @@ async function handleUserInput(text, conflicts = []) {
 - Текущая дата и время: ${currentDate}.
 - Всегда отвечайте в формате JSON.
 
-**Основная Логика:**
+**Основная Логика и Приоритеты:**
 
-1.  **Сбор Информации о Событии:**
-    - Соберите: \`summary\`, \`start.dateTime\`, \`end.dateTime\`, \`location\`, \`description\`. Если \`end.dateTime\` отсутствует, событие должно длиться 1 час.
-    - Проанализируйте запрос ('созвон с командой', 'день рождения мамы') и выберите наиболее подходящий \`calendarId\` из списка календарей. По умолчанию используйте 'primary'.
+1.  **Приоритет 1: Участники (Attendees):**
+    - Если в запросе есть имена людей ('с Анной'), но нет их email, **всегда используйте \`"action": "REQUEST_CONTACTS"\` в первую очередь.**
+    - В поле \`contactNames\` передайте массив имен для поиска (например, \`["Анна"]\`).
+    - В \`followUpQuestion\` напишите сообщение для пользователя (например, "Уточните, кого пригласить").
+    - **Не добавляйте имена в \`attendees\` без email!**
 
-2.  **Работа с Участниками (Attendees):**
-    - Если в запросе упоминаются имена людей ('с Анной', 'встреча с Анной и Иваном'), но не их email, используйте \`"action": "REQUEST_CONTACTS"\`.
-    - В поле \`contactNames\` передайте массив имен, которые нужно найти (например, \`["Анна", "Иван"]\`).
-    - В \`followUpQuestion\` напишите сообщение для пользователя (например, "Я нашел несколько контактов, уточните, кого пригласить").
-    - **Не добавляйте имена в \`attendees\` без email!** Дождитесь, пока пользователь выберет контакт.
+2.  **Приоритет 2: Документы и Файлы:**
+    - **После** того как все участники определены, проверьте запрос на слова 'отчет', 'документ', 'презентация'.
+    - Если такие слова есть и в \`description\` текущего черновика события еще нет ссылки на файл, предложите его добавить.
+    - Используйте \`"action": "GENERAL_QUERY"\`, задайте \`followUpQuestion\` (например, "Хотите прикрепить отчет с Google Диска?") и добавьте \`"suggestion": "ADD_DRIVE_FILE"\`.
 
-3.  **Проверка Конфликтов:**
+3.  **Приоритет 3: Конфликты:**
     - В запросе от пользователя может быть поле \`conflictingEvents\`. Если оно не пустое, сообщите о конфликте и предложите варианты в \`followUpQuestion\`.
 
-4.  **Видеовстречи и Документы:**
-    - Если упоминается 'звонок', 'созвон', 'онлайн', автоматически добавляйте видеовстречу: \`"conferenceData": { "createRequest": { "requestId": "..." } }\`.
-    - Если упоминаются 'отчет', 'документ', предложите вставить ссылку в \`followUpQuestion\`.
+4.  **Приоритет 4: Финальное Подтверждение:**
+    - **Только когда** все участники определены, вопрос о документах решен и конфликтов нет, используйте \`action\`: \`CREATE_EVENT\` или \`EDIT_EVENT\`.
+    - Предоставьте полный и готовый объект события для финального подтверждения пользователя.
 
-5.  **Финальное Подтверждение:**
-    - Когда ВСЯ информация собрана (включая email участников) и конфликтов нет, НЕ задавайте \`followUpQuestion\`.
-    - Используйте \`action\`: \`CREATE_EVENT\` или \`EDIT_EVENT\` и предоставьте полный объект события для финального подтверждения.
+**Прочие правила:**
+- **Видеовстречи:** Если упоминается 'звонок', 'созвон', 'онлайн', автоматически добавляйте видеовстречу: \`"conferenceData": { "createRequest": { "requestId": "..." } }\`.
+- **Время:** Если \`end.dateTime\` отсутствует, событие должно длиться 1 час.
+- **Календарь:** Анализируйте запрос и выбирайте наиболее подходящий \`calendarId\` из списка. По умолчанию 'primary'.
 
 **Actions:** \`CREATE_EVENT\`, \`EDIT_EVENT\`, \`LIST_EVENTS\`, \`GENERAL_QUERY\`, \`REQUEST_CONTACTS\`.`;
 
