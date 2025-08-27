@@ -186,21 +186,16 @@ function initializeApiClients() {
     GOOGLE_CLIENT_ID = localStorage.getItem('GOOGLE_CLIENT_ID');
     const GEMINI_API_KEY = localStorage.getItem('GEMINI_API_KEY');
 
-    if (GEMINI_API_KEY) {
+    if (GEMINI_API_KEY && !ai) {
         try {
             ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
         } catch (error) {
             console.error("Failed to initialize GoogleGenAI:", error);
             ai = null;
         }
-    } else {
-        ai = null;
     }
     
-    // Check if gisInited to avoid re-initializing on hot reloads or multiple calls
-    if (gisInited) return;
-
-    if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID) {
+    if (typeof google !== 'undefined' && GOOGLE_CLIENT_ID && !gisInited) {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
@@ -208,10 +203,7 @@ function initializeApiClients() {
         });
         gisInited = true;
         
-        // Attempt to restore session silently
-        if (localStorage.getItem('onboardingComplete') === 'true') {
-            tokenClient.requestAccessToken({ prompt: 'none' });
-        }
+        tokenClient.requestAccessToken({ prompt: 'none' });
     }
     maybeEnableAuthUI();
 }
@@ -287,7 +279,7 @@ function updateSignInStatus(isSignedIn, userInfo = null) {
     }
     
     calendarLoginPrompt.style.display = 'none';
-    calendarViewContainer.style.display = 'flex';
+    calendarViewContainer.style.display = 'grid'; // Use grid instead of flex
     welcomeScreen.querySelector('.welcome-subheading').textContent = 'Чем я могу помочь вам сегодня?';
     
   } else {
@@ -1204,15 +1196,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('gapiLoaded', () => gapi.load('client', initializeGapiClient));
     document.addEventListener('gisInitalised', initializeApiClients);
 
-    initializeApiClients();
+    if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
+        setupOnboarding();
+    } else {
+        initializeApiClients();
+    }
     
     selectedDate.setHours(0, 0, 0, 0);
-
-    if (localStorage.getItem('onboardingComplete') !== 'true') {
-        if (!localStorage.getItem('GOOGLE_CLIENT_ID') || !localStorage.getItem('GEMINI_API_KEY')) {
-            setupOnboarding();
-        }
-    }
 
     settingsButton.addEventListener('click', (e) => {
         lastFocusedElement = e.currentTarget;
