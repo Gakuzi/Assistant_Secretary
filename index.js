@@ -90,7 +90,8 @@ async function initializeApp() {
     }
     
     // Initial UI update based on keys and sign-in status
-    updateUiForAuthState(gapi.client?.getToken() !== null);
+    const isSignedIn = appState.gapiInited && gapi.client.getToken() !== null;
+    updateUiForAuthState(isSignedIn);
 }
 
 async function initializeGapiClient(clientId) {
@@ -135,6 +136,7 @@ async function handleTokenResponse(response) {
         appendMessage('error', `Ошибка авторизации: ${response.error_description}`);
         return;
     }
+    gapi.client.setToken(response);
     if (dom.settingsModal.classList.contains('visible')) {
         closeModal(dom.settingsModal);
     }
