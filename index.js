@@ -642,40 +642,8 @@ function getCalendarColor(colorId) {
 
 // --- Chat & Gemini ---
 
-async function sendMessage(text, images = []) {
-    if (!text && images.length === 0) return;
-
-    showLoading(true);
-    dom.welcomeScreen.style.opacity = '0';
-    setTimeout(() => { dom.welcomeScreen.style.display = 'none'; }, 300);
-
-    const userMessage = { role: 'user', parts: [] };
-    if (text) {
-        userMessage.parts.push({ text: text });
-        appendMessage('user', text);
-    }
-    if (images.length > 0) {
-        images.forEach(img => {
-            userMessage.parts.push({ inlineData: { mimeType: img.type, data: img.data } });
-        });
-        // You might want to display the image in the chat as well
-    }
-
-    chatHistory.push(userMessage);
-    if (currentReplyContext) {
-        chatHistory.push(currentReplyContext.aiResponse);
-        clearReplyContext();
-    }
-    dom.chatTextInput.value = '';
-    dom.chatTextInput.style.height = 'auto';
-
-
-    try {
-        if (!ai) {
-             throw new Error("Gemini AI client is not initialized. Please check your API key.");
-        }
-        
-        const systemInstruction = `Вы — высокоинтеллектуальный ассистент, интегрированный с Google Календарем, задачами и документами.
+function getSystemInstruction() {
+    return `Вы — высокоинтеллектуальный ассистент, интегрированный с Google Календарем, задачами и документами.
         Ваша цель — помогать пользователю управлять своим расписанием, задачами и заметками.
         Всегда отвечайте на русском языке.
         
@@ -694,25 +662,60 @@ async function sendMessage(text, images = []) {
         После успешного создания события, подтвердите это и предоставьте детали.
         Если пользователь просит создать документ для встречи, сначала найдите эту встречу с помощью find_calendar_events, чтобы получить ее ID и название. Если встреч несколько, уточните, для какой именно создать документ.
         `;
+}
 
-        const model = ai.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            systemInstruction: systemInstruction,
-            tools: {
+async function sendMessage(text, images = []) {
+    if (!text && images.length === 0) return;
+
+    showLoading(true);
+    dom.welcomeScreen.style.opacity = '0';
+    setTimeout(() => { dom.welcomeScreen.style.display = 'none'; }, 300);
+
+    const userMessage = { role: 'user', parts: [] };
+    if (text) {
+        userMessage.parts.push({ text: text });
+        appendMessage('user', text);
+    }
+    if (images.length > 0) {
+        images.forEach(img => {
+            userMessage.parts.push({ inlineData: { mimeType: img.type, data: img.data } });
+        });
+    }
+
+    if (currentReplyContext) {
+        chatHistory.push(currentReplyContext.aiResponse);
+        clearReplyContext();
+    }
+    chatHistory.push(userMessage);
+
+    dom.chatTextInput.value = '';
+    dom.chatTextInput.style.height = 'auto';
+
+
+    try {
+        if (!ai) {
+             throw new Error("Gemini AI client is not initialized. Please check your API key.");
+        }
+
+        const result = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: chatHistory,
+            systemInstruction: getSystemInstruction(),
+            tools: [{
                 functionDeclarations: [
                     {
                         name: 'create_calendar_event',
                         description: 'Создает новое событие в Google Календаре.',
                         parameters: {
-                            type: 'OBJECT',
+                            type: Type.OBJECT,
                             properties: {
-                                summary: { type: 'STRING', description: 'Название или заголовок события.' },
-                                description: { type: 'STRING', description: 'Подробное описание события.' },
-                                location: { type: 'STRING', description: 'Место проведения события.' },
-                                startDateTime: { type: 'STRING', description: 'Дата и время начала в формате ISO 8601.' },
-                                endDateTime: { type: 'STRING', description: 'Дата и время окончания в формате ISO 8601.' },
-                                attendees: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Список email-адресов участников.' },
-                                createConference: { type: 'BOOLEAN', description: 'Создать ли видеовстречу Google Meet.' },
+                                summary: { type: Type.STRING, description: 'Название или заголовок события.' },
+                                description: { type: Type.STRING, description: 'Подробное описание события.' },
+                                location: { type: Type.STRING, description: 'Место проведения события.' },
+                                startDateTime: { type: Type.STRING, description: 'Дата и время начала в формате ISO 8601.' },
+                                endDateTime: { type: Type.STRING, description: 'Дата и время окончания в формате ISO 8601.' },
+                                attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Список email-адресов участников.' },
+                                createConference: { type: Type.BOOLEAN, description: 'Создать ли видеовстречу Google Meet.' },
                             },
                             required: ['summary', 'startDateTime', 'endDateTime'],
                         },
@@ -721,11 +724,11 @@ async function sendMessage(text, images = []) {
                         name: 'find_calendar_events',
                         description: 'Ищет события в Google Календаре по запросу.',
                         parameters: {
-                            type: 'OBJECT',
+                            type: Type.OBJECT,
                             properties: {
-                                query: { type: 'STRING', description: 'Поисковый запрос (например, "встреча с командой").' },
-                                timeMin: { type: 'STRING', description: 'Начальная дата для поиска в формате ISO 8601.' },
-                                timeMax: { type: 'STRING', description: 'Конечная дата для поиска в формате ISO 8601.' },
+                                query: { type: Type.STRING, description: 'Поисковый запрос (например, "встреча с командой").' },
+                                timeMin: { type: Type.STRING, description: 'Начальная дата для поиска в формате ISO 8601.' },
+                                timeMax: { type: Type.STRING, description: 'Конечная дата для поиска в формате ISO 8601.' },
                             },
                         },
                     },
@@ -733,11 +736,11 @@ async function sendMessage(text, images = []) {
                         name: 'create_task',
                         description: 'Создает новую задачу в Google Tasks.',
                         parameters: {
-                            type: 'OBJECT',
+                            type: Type.OBJECT,
                             properties: {
-                                title: { type: 'STRING', description: 'Название задачи.' },
-                                notes: { type: 'STRING', description: 'Дополнительные детали задачи.' },
-                                due: { type: 'STRING', description: 'Срок выполнения в формате ISO 8601.' },
+                                title: { type: Type.STRING, description: 'Название задачи.' },
+                                notes: { type: Type.STRING, description: 'Дополнительные детали задачи.' },
+                                due: { type: Type.STRING, description: 'Срок выполнения в формате ISO 8601.' },
                             },
                             required: ['title'],
                         },
@@ -746,22 +749,19 @@ async function sendMessage(text, images = []) {
                         name: 'create_document_for_event',
                         description: 'Создает Google Документ для повестки встречи и прикрепляет его к событию в календаре.',
                         parameters: {
-                            type: 'OBJECT',
+                            type: Type.OBJECT,
                             properties: {
-                                eventId: { type: 'STRING', description: 'ID события в календаре, к которому нужно прикрепить документ.' },
-                                documentTitle: { type: 'STRING', description: 'Заголовок нового Google Документа.' },
+                                eventId: { type: Type.STRING, description: 'ID события в календаре, к которому нужно прикрепить документ.' },
+                                documentTitle: { type: Type.STRING, description: 'Заголовок нового Google Документа.' },
                             },
                             required: ['eventId', 'documentTitle'],
                         },
                     },
-                ],
-            },
+                ]
+            }],
         });
         
-        const chat = model.startChat({ history: chatHistory.slice(0, -1) });
-        const result = await chat.sendMessage(userMessage.parts);
-        
-        await streamAndRenderResponse(result);
+        await handleApiResponse(result);
 
     } catch (error) {
         console.error('Error sending message to Gemini:', error);
@@ -809,34 +809,48 @@ function appendMessage(sender, content) {
     return messageBubble;
 }
 
-async function streamAndRenderResponse(result) {
-    let finalResponse = '';
-    const response = result.response;
-    const functionCalls = response.functionCalls();
+async function handleApiResponse(response) {
+    const text = response.text;
+    const functionCall = response.candidates[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
 
-    if (functionCalls && functionCalls.length > 0) {
-        appendMessage('system', `Выполняю действие: ${functionCalls[0].name}...`);
-        const call = functionCalls[0];
-        const apiResponse = await processFunctionCall(call.name, call.args);
+    if (functionCall) {
+        const { name, args } = functionCall;
+        appendMessage('system', `Выполняю действие: ${name}...`);
 
-        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash"});
-        const chat = model.startChat({ history: chatHistory });
-        const result2 = await chat.sendMessage([{ functionResponse: { name: call.name, response: apiResponse } }]);
+        chatHistory.push(response.candidates[0].content);
+
+        const apiResponse = await processFunctionCall(name, args);
         
-        await streamAndRenderResponse(result2);
+        chatHistory.push({
+            role: 'user',
+            parts: [{
+                functionResponse: {
+                    name,
+                    response: apiResponse,
+                },
+            }],
+        });
 
+        const result2 = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: chatHistory,
+            systemInstruction: getSystemInstruction(),
+        });
+        
+        await handleApiResponse(result2);
+
+    } else if (text) {
+        appendMessage('ai', text);
+        chatHistory.push({ role: 'model', parts: [{ text }] });
     } else {
-        const text = response.text();
-        finalResponse += text;
-        const aiMessageBubble = appendMessage('ai', text);
-        chatHistory.push({ role: 'model', parts: [{ text: finalResponse }] });
+         appendMessage('error', 'Получен пустой ответ от AI.');
     }
 }
 
 async function processFunctionCall(name, args) {
-    let result = {};
     try {
         if (!gapiInited) throw new Error("Google API не инициализирован. Пожалуйста, войдите в аккаунт.");
+        let result = {};
         switch (name) {
             case 'create_calendar_event':
                 const event = {
@@ -913,10 +927,10 @@ async function processFunctionCall(name, args) {
                 result = { documentUrl: docUrl, event: patchResponse.result };
                 break;
         }
-        return { success: true, data: result };
+        return result;
     } catch (error) {
         console.error(`Error executing function ${name}:`, error);
-        return { success: false, error: error.result?.error?.message || error.message };
+        return { error: error.result?.error?.message || error.message };
     }
 }
 
@@ -1095,4 +1109,3 @@ function setupEventListeners() {
 
 // --- Init ---
 initializeApp();
-```
