@@ -377,11 +377,25 @@ body {
   margin: 0;
 }
 .event-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 12px;
   margin-bottom: 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
   background-color: var(--surface-color);
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+.event-item:hover, .event-item:focus-within {
+  background-color: var(--light-gray-background);
+  box-shadow: var(--shadow-sm);
+}
+
+.event-details {
+  flex-grow: 1;
+  margin-right: 16px;
 }
 .event-item-header {
   display: flex;
@@ -406,23 +420,39 @@ body {
 }
 .event-item-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  border-top: 1px solid var(--border-color);
-  padding-top: 12px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .event-action-button {
-  background: none; border: 1px solid var(--border-color);
-  color: var(--text-color-secondary); padding: 4px 10px;
-  font-size: 0.8em; border-radius: var(--border-radius-lg);
-  cursor: pointer; transition: all 0.2s;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-color-secondary);
+  padding: 6px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.event-action-button .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.event-action-button:hover {
+  background-color: #00000014;
+  color: var(--text-color-primary);
 }
 .event-action-button.delete:hover {
-  background-color: #fce8e6; color: var(--error-color); border-color: var(--error-color);
+  background-color: #fce8e6;
+  color: var(--error-color);
 }
-.event-action-button.edit:hover {
-  background-color: var(--system-message-background); color: var(--primary-color-dark); border-color: var(--primary-color);
+.event-action-button.edit:hover, .event-action-button.open-gcal:hover {
+  background-color: var(--system-message-background);
+  color: var(--primary-color-dark);
 }
+
 
 /* --- Misc & Helpers --- */
 #loading-indicator {

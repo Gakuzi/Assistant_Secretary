@@ -1,4 +1,5 @@
 
+
 /**
  * @license
  * Copyright 2025 Google LLC
@@ -308,27 +309,41 @@ async function listUpcomingEvents() {
 
       const eventElement = document.createElement('li');
       eventElement.className = 'event-item';
+      eventElement.dataset.eventId = event.id;
+      eventElement.setAttribute('role', 'button');
+      eventElement.setAttribute('tabindex', '0');
+      eventElement.setAttribute('aria-label', `Событие: ${event.summary}. Нажмите, чтобы редактировать в приложении.`);
 
       const startDate = new Date(start);
       const timeString = startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       const dateString = startDate.toLocaleDateString('ru-RU', { weekday: 'short', month: 'long', day: 'numeric' });
 
       eventElement.innerHTML = `
-        <div class="event-item-header">
-            <h3 class="event-item-title">${event.summary || '(Без названия)'}</h3>
+        <div class="event-details">
+          <div class="event-item-header">
+              <h3 class="event-item-title">${event.summary || '(Без названия)'}</h3>
+          </div>
+          <p class="event-item-time">
+              <span class="material-symbols-outlined">schedule</span>
+              ${dateString}, ${timeString}
+          </p>
+          ${event.location ? `
+          <p class="event-item-location">
+              <span class="material-symbols-outlined">location_on</span>
+              ${event.location}
+          </p>` : ''}
         </div>
-        <p class="event-item-time">
-            <span class="material-symbols-outlined">schedule</span>
-            ${dateString}, ${timeString}
-        </p>
-        ${event.location ? `
-        <p class="event-item-location">
-            <span class="material-symbols-outlined">location_on</span>
-            ${event.location}
-        </p>` : ''}
         <div class="event-item-actions">
-            <button class="event-action-button edit" data-event-id="${event.id}">Изменить</button>
-            <button class="event-action-button delete" data-event-id="${event.id}">Удалить</button>
+          ${event.htmlLink ? `
+          <a href="${event.htmlLink}" target="_blank" rel="noopener noreferrer" class="event-action-button open-gcal" title="Открыть в Google Календаре" aria-label="Открыть в Google Календаре">
+              <span class="material-symbols-outlined">open_in_new</span>
+          </a>` : ''}
+          <button class="event-action-button edit" title="Изменить в приложении" aria-label="Изменить событие ${event.summary} в приложении">
+              <span class="material-symbols-outlined">edit</span>
+          </button>
+          <button class="event-action-button delete" title="Удалить событие" aria-label="Удалить событие ${event.summary}">
+              <span class="material-symbols-outlined">delete</span>
+          </button>
         </div>
       `;
       upcomingEventsList.appendChild(eventElement);
@@ -895,15 +910,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
     upcomingEventsList.addEventListener('click', (e) => {
         const target = e.target;
-        const eventId = target.dataset.eventId;
-        if (!eventId) return;
-
-        if (target.classList.contains('delete')) {
-            if (confirm('Вы уверены, что хотите удалить это событие?')) {
-                deleteCalendarEvent(eventId);
+    
+        // Check for specific button clicks first
+        const deleteButton = target.closest('.delete');
+        if (deleteButton) {
+            const eventItem = target.closest('.event-item');
+            if (eventItem) {
+                const eventId = eventItem.dataset.eventId;
+                if (eventId && confirm('Вы уверены, что хотите удалить это событие?')) {
+                    deleteCalendarEvent(eventId);
+                }
             }
-        } else if (target.classList.contains('edit')) {
-            handleEditEventStart(eventId);
+            return; // Stop further processing
+        }
+    
+        // Check for GCal link click
+        if (target.closest('.open-gcal')) {
+            return; // Let the link do its job
+        }
+        
+        // For any other click inside the item (including the edit button or the item itself), trigger edit.
+        const eventItem = target.closest('.event-item');
+        if (eventItem) {
+            const eventId = eventItem.dataset.eventId;
+            if (eventId) {
+                handleEditEventStart(eventId);
+            }
+        }
+    });
+
+    upcomingEventsList.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            const target = e.target;
+            if (target.classList.contains('event-item')) {
+                e.preventDefault();
+                const eventId = target.dataset.eventId;
+                if (eventId) {
+                    handleEditEventStart(eventId);
+                }
+            }
         }
     });
     
