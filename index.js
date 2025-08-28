@@ -8,7 +8,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { marked } from 'marked';
 
 // --- Configuration ---
-const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
+const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/contacts.readonly";
 
 // --- State Management ---
 const appState = {
@@ -139,7 +139,8 @@ async function initializeGoogleServices() {
         await gapi.client.init({
             discoveryDocs: [
                 "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
-                "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest"
+                "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest",
+                "https://people.googleapis.com/$discovery/rest?version=v1"
             ]
         });
         appState.gapiInited = true;
@@ -407,7 +408,7 @@ function createEventElement(event) {
 async function generateDynamicSuggestions() {
     if (!appState.ai) return;
     try {
-        const prompt = `Создай 3 коротких примера-запроса для ассистента-календаря на русском языке. Ответ дай в виде JSON-массива строк. Пример: ["Какие у меня планы на завтра?", "Создай встречу в пятницу в 10 утра", "Напомни позвонить маме"]`;
+        const prompt = `Создай 3 коротких, разнообразных примера-запроса для ассистента-календаря на русском языке. Ответ дай в виде JSON-массива строк. Включи запросы на поиск и создание. Пример: ["Какие у меня планы на завтра?", "Создай встречу с Анной в пятницу в 10 утра", "Найди все встречи по проекту 'Альфа'"]`;
         const response = await appState.ai.models.generateContent({
             model: "gemini-2.5-flash", contents: prompt, config: { responseMimeType: "application/json" }
         });
@@ -457,14 +458,14 @@ async function sendMessage(text, images = []) {
     appState.attachedImages = [];
     dom.chatTextInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-    const systemInstruction = `Ты — автоматический маршрутизатор API. Твоя единственная задача — анализировать запрос и вызывать функции. Ты НЕ должен вести диалог.
+    const systemInstruction = `Ты — высокоинтеллектуальный ассистент по управлению Google Workspace. Твоя задача — точно и эффективно вызывать функции API в ответ на запросы пользователя.
 - **ПРАВИЛА:**
-- **ПРИОРИТЕТ ФУНКЦИИ:** Если запрос можно выполнить с помощью функции, ты ОБЯЗАН вызвать эту функцию.
-- **НИКАКИХ ПОДТВЕРЖДЕНИЙ:** Не отвечай текстом "Хорошо, создаю...", а НЕМЕДЛЕННО вызови функцию.
-- **УТОЧНЕНИЕ:** Если не хватает данных (названия, времени), задай ОДИН короткий уточняющий вопрос.
-- **ПОБОЧНЫЕ ЗАПРОСЫ:** Если запрос не касается календаря/задач, дай краткий текстовый ответ.
+- **ВСЕГДА ИСПОЛЬЗУЙ ФУНКЦИИ:** Если запрос можно выполнить с помощью функции, ты ОБЯЗАН вызвать ее. Не отвечай текстом, если можешь действовать.
+- **МНОГОШАГОВЫЕ ДЕЙСТВИЯ:** Если для выполнения запроса (например, "добавить Ивана на встречу") нужно сначала найти контакт, а потом обновить событие, вызывай функции последовательно.
+- **УТОЧНЕНИЕ:** Если не хватает критически важных данных (названия, времени), задай ОДИН короткий уточняющий вопрос.
 - **КОНТЕКСТ ВРЕМЕНИ:** Текущая дата: ${new Date().toISOString()}.
-- **ВИДЕОВСТРЕЧИ:** Для "звонок", "созвон", "meet" всегда устанавливай \`add_meet_link: true\`.`;
+- **ВИДЕОВСТРЕЧИ:** Для "звонок", "созвон", "meet", "онлайн" всегда устанавливай \`add_meet_link: true\`.
+- **ОБНОВЛЕНИЕ:** Для обновления события используй event_id и передавай только изменяемые поля.`;
 
     const tools = [{ functionDeclarations: [
         { name: 'create_calendar_event', description: 'Создает событие в Google Календаре.',
@@ -474,8 +475,31 @@ async function sendMessage(text, images = []) {
                 start_time: { type: Type.STRING, description: 'Время начала в формате ISO 8601.' },
                 end_time: { type: Type.STRING, description: 'Время окончания в формате ISO 8601.' },
                 location: { type: Type.STRING, description: 'Место проведения.' },
+                attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Массив email-адресов участников.' },
                 add_meet_link: { type: Type.BOOLEAN, description: 'Добавить ссылку Google Meet.' }
             }, required: ['summary', 'start_time', 'end_time'] }
+        },
+        { name: 'find_events', description: 'Ищет события в календаре по дате или ключевому слову.',
+            parameters: { type: Type.OBJECT, properties: {
+                time_min: { type: Type.STRING, description: 'Начало периода поиска в ISO 8601.' },
+                time_max: { type: Type.STRING, description: 'Конец периода поиска в ISO 8601.' },
+                query: { type: Type.STRING, description: 'Ключевые слова для поиска в названии или описании.' }
+            }, required: [] }
+        },
+        { name: 'update_calendar_event', description: 'Обновляет существующее событие в календаре.',
+            parameters: { type: Type.OBJECT, properties: {
+                event_id: { type: Type.STRING, description: 'ID события для обновления.' },
+                summary: { type: Type.STRING, description: 'Новое название события.' },
+                start_time: { type: Type.STRING, description: 'Новое время начала в ISO 8601.' },
+                end_time: { type: Type.STRING, description: 'Новое время окончания в ISO 8601.' },
+                location: { type: Type.STRING, description: 'Новое место проведения.' },
+                attendees_to_add: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Массив email-адресов для добавления.' },
+            }, required: ['event_id'] }
+        },
+        { name: 'delete_calendar_event', description: 'Удаляет событие из календаря.',
+            parameters: { type: Type.OBJECT, properties: {
+                event_id: { type: Type.STRING, description: 'ID события для удаления.' }
+            }, required: ['event_id'] }
         },
         { name: 'create_task', description: 'Создает задачу в Google Задачах.',
             parameters: { type: Type.OBJECT, properties: {
@@ -483,6 +507,11 @@ async function sendMessage(text, images = []) {
                 notes: { type: Type.STRING, description: 'Описание задачи.' },
                 due: { type: Type.STRING, description: 'Срок выполнения в формате ISO 8601 (только дата).' }
             }, required: ['title'] }
+        },
+        { name: 'find_contacts', description: 'Ищет контакты по имени для добавления в события.',
+             parameters: { type: Type.OBJECT, properties: {
+                name_query: { type: Type.STRING, description: 'Имя или часть имени для поиска.' }
+            }, required: ['name_query'] }
         }
     ] }];
 
@@ -499,8 +528,15 @@ async function sendMessage(text, images = []) {
             appendMessage('system', `Выполняю команду...`);
             appState.chatHistory.push(response.candidates[0].content);
             const { name, args } = modelResponsePart.functionCall;
-            if (name === 'create_calendar_event') await createCalendarEvent(args);
-            else if (name === 'create_task') await createTask(args);
+            let result;
+            // TODO: Handle multiple function calls in one response if the API supports it
+            if (name === 'create_calendar_event') result = await createCalendarEvent(args);
+            else if (name === 'create_task') result = await createTask(args);
+            else if (name === 'find_events') result = await findEvents(args);
+            else if (name === 'update_calendar_event') result = await updateCalendarEvent(args);
+            else if (name === 'delete_calendar_event') result = await deleteCalendarEvent(args);
+            else if (name === 'find_contacts') result = await findContacts(args);
+            // TODO: Send result back to model for summary
         } else {
             const text = response.text;
             appendMessage('model', text);
@@ -514,6 +550,8 @@ async function sendMessage(text, images = []) {
     }
 }
 
+// --- API Function Implementations ---
+
 async function createCalendarEvent(args) {
     try {
         const event = {
@@ -521,6 +559,9 @@ async function createCalendarEvent(args) {
             'start': { 'dateTime': args.start_time, 'timeZone': Intl.DateTimeFormat().resolvedOptions().timeZone },
             'end': { 'dateTime': args.end_time, 'timeZone': Intl.DateTimeFormat().resolvedOptions().timeZone },
         };
+        if (args.attendees && args.attendees.length > 0) {
+            event.attendees = args.attendees.map(email => ({ email }));
+        }
         if (args.add_meet_link) {
             event.conferenceData = { createRequest: { requestId: `meet-${Date.now()}` } };
         }
@@ -528,10 +569,15 @@ async function createCalendarEvent(args) {
         const response = await request;
         const createdEvent = response.result;
         const startTime = new Date(createdEvent.start.dateTime).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
-        const cardHtml = `<div class="card event-card">
+        const cardHtml = `<div class="card event-card" data-event-id="${createdEvent.id}">
             <div class="card-icon"><span class="material-symbols-outlined">event</span></div>
             <div class="card-content"><h4>Событие создано</h4><p><strong>${createdEvent.summary}</strong> в ${startTime}</p></div>
-            <a href="${createdEvent.htmlLink}" target="_blank" class="card-button" aria-label="Открыть в Календаре"><span class="material-symbols-outlined">open_in_new</span></a></div>`;
+            <div class="card-actions">
+              <button class="icon-button card-action-button" data-action="edit" aria-label="Изменить"><span class="material-symbols-outlined">edit</span></button>
+              <button class="icon-button card-action-button" data-action="delete" aria-label="Удалить"><span class="material-symbols-outlined">delete</span></button>
+              <a href="${createdEvent.htmlLink}" target="_blank" class="icon-button" aria-label="Открыть в Календаре"><span class="material-symbols-outlined">open_in_new</span></a>
+            </div>
+          </div>`;
         appendMessage('system', "Готово!", cardHtml);
         renderCalendar(new Date(createdEvent.start.dateTime));
         renderDailyEvents(new Date(createdEvent.start.dateTime));
@@ -548,16 +594,125 @@ async function createTask(args) {
         const response = await request;
         const createdTask = response.result;
         const dueDate = createdTask.due ? new Date(createdTask.due).toLocaleDateString('ru-RU') : 'Без срока';
-        const cardHtml = `<div class="card task-card">
+        const cardHtml = `<div class="card task-card" data-task-id="${createdTask.id}">
             <div class="card-icon"><span class="material-symbols-outlined">task_alt</span></div>
             <div class="card-content"><h4>Задача создана</h4><p><strong>${createdTask.title}</strong>, срок: ${dueDate}</p></div>
-            <a href="https://mail.google.com/tasks/canvas" target="_blank" class="card-button" aria-label="Открыть в Задачах"><span class="material-symbols-outlined">open_in_new</span></a></div>`;
+            <a href="https://mail.google.com/tasks/canvas" target="_blank" class="icon-button" aria-label="Открыть в Задачах"><span class="material-symbols-outlined">open_in_new</span></a></div>`;
         appendMessage('system', "Готово!", cardHtml);
     } catch (error) {
         console.error('Google Tasks API Error:', error);
         appendMessage('error', `Не удалось создать задачу: ${(error.result?.error?.message) || error.message}`);
     }
 }
+
+async function findEvents(args) {
+    try {
+        const response = await gapi.client.calendar.events.list({
+            'calendarId': 'primary',
+            'timeMin': args.time_min || (new Date()).toISOString(),
+            'timeMax': args.time_max,
+            'q': args.query,
+            'showDeleted': false,
+            'singleEvents': true,
+            'maxResults': 10,
+            'orderBy': 'startTime'
+        });
+        const events = response.result.items;
+        if (events.length === 0) {
+            appendMessage('model', 'По вашему запросу ничего не найдено.');
+        } else {
+            let resultText = 'Вот что я нашел:\n';
+            events.forEach(event => {
+                const start = new Date(event.start.dateTime || event.start.date).toLocaleString('ru-RU');
+                resultText += `- **${event.summary}** в ${start}\n`;
+            });
+            appendMessage('model', resultText);
+        }
+    } catch (error) {
+        console.error('Find Events Error:', error);
+        appendMessage('error', `Ошибка при поиске событий: ${error.message}`);
+    }
+}
+
+async function updateCalendarEvent(args) {
+    try {
+        // First, get the existing event to patch it correctly
+        const existingEventResponse = await gapi.client.calendar.events.get({
+            calendarId: 'primary',
+            eventId: args.event_id,
+        });
+        const eventToUpdate = existingEventResponse.result;
+
+        // Apply updates
+        if (args.summary) eventToUpdate.summary = args.summary;
+        if (args.start_time) eventToUpdate.start.dateTime = args.start_time;
+        if (args.end_time) eventToUpdate.end.dateTime = args.end_time;
+        if (args.location) eventToUpdate.location = args.location;
+        if (args.attendees_to_add) {
+            eventToUpdate.attendees = (eventToUpdate.attendees || []).concat(args.attendees_to_add.map(email => ({ email })));
+        }
+        
+        const response = await gapi.client.calendar.events.update({
+            'calendarId': 'primary',
+            'eventId': args.event_id,
+            'resource': eventToUpdate
+        });
+        appendMessage('system', `Событие "${response.result.summary}" успешно обновлено.`);
+        renderCalendar(new Date(response.result.start.dateTime));
+        renderDailyEvents(new Date(response.result.start.dateTime));
+    } catch (error) {
+        console.error('Update Event Error:', error);
+        appendMessage('error', `Не удалось обновить событие: ${error.message}`);
+    }
+}
+
+
+async function deleteCalendarEvent(args) {
+    try {
+        await gapi.client.calendar.events.delete({
+            'calendarId': 'primary',
+            'eventId': args.event_id
+        });
+        appendMessage('system', 'Событие успешно удалено.');
+        const cardToRemove = dom.messageList.querySelector(`[data-event-id="${args.event_id}"]`);
+        if(cardToRemove) cardToRemove.style.opacity = '0.5';
+        renderCalendar(appState.currentDisplayedDate);
+        renderDailyEvents(appState.currentDisplayedDate);
+    } catch (error) {
+        console.error('Delete Event Error:', error);
+        appendMessage('error', `Не удалось удалить событие: ${error.message}`);
+    }
+}
+
+
+async function findContacts(args) {
+    try {
+        const response = await gapi.client.people.people.searchContacts({
+            query: args.name_query,
+            readMask: 'names,emailAddresses',
+            pageSize: 5
+        });
+        const contacts = response.result.results;
+        if (!contacts || contacts.length === 0) {
+            appendMessage('model', `Контакт с именем "${args.name_query}" не найден.`);
+            return;
+        }
+        // For simplicity, let's just show the found contacts for now
+        // A real implementation would send this back to the model to ask the user which one to use
+        let resultText = `Я нашел несколько контактов. Кого вы имели в виду?\n`;
+        contacts.forEach(result => {
+             const person = result.person;
+             const name = person.names?.[0]?.displayName || 'Без имени';
+             const email = person.emailAddresses?.[0]?.value || 'Нет email';
+             resultText += `- ${name} (${email})\n`;
+        });
+        appendMessage('model', resultText);
+    } catch (error) {
+        console.error('Find Contacts Error:', error);
+        appendMessage('error', `Ошибка при поиске контактов: ${error.message}`);
+    }
+}
+
 
 function appendMessage(type, text, content = '') {
     const wrapper = document.createElement('div');
@@ -677,6 +832,27 @@ function setupEventListeners() {
     dom.suggestionChipsContainer.onclick = (e) => { const target = e.target; if (target.classList.contains('suggestion-chip')) sendMessage(target.textContent || ''); };
     dom.mobileTabBar.onclick = (e) => { const btn = e.target.closest('.tab-button'); if (btn) switchView(btn.dataset.view); };
     
+    // Listener for interactive card actions
+    dom.messageList.addEventListener('click', (e) => {
+        const button = e.target.closest('.card-action-button');
+        if (!button) return;
+        
+        const action = button.dataset.action;
+        const card = button.closest('.card');
+        const eventId = card?.dataset.eventId;
+
+        if (action === 'delete' && eventId) {
+            if (confirm('Вы уверены, что хотите удалить это событие?')) {
+                deleteCalendarEvent({ event_id: eventId });
+            }
+        } else if (action === 'edit' && eventId) {
+            const new_text = prompt("Что вы хотите изменить в этом событии? (Например: 'перенеси на завтра в 15:00', 'измени название на ...')");
+            if (new_text) {
+                sendMessage(`Обнови событие с ID ${eventId}: ${new_text}`);
+            }
+        }
+    });
+
     switchView('chat');
 }
 
