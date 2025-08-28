@@ -542,7 +542,7 @@ body {
 .icon-button .material-symbols-outlined { font-size: 24px; }
 #mic-button-chat.active { color: var(--error-color); }
 
-/* --- Settings Modal --- */
+/* --- Modals (Settings & Instructions) --- */
 .modal {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -553,9 +553,11 @@ body {
     z-index: 1000;
     opacity: 0;
     transition: opacity var(--transition-speed) ease;
+    pointer-events: none;
 }
 .modal.visible {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .modal-content {
@@ -564,7 +566,7 @@ body {
     border-radius: var(--border-radius-sm);
     box-shadow: var(--shadow-md);
     width: 90%;
-    max-width: 500px;
+    max-width: 600px;
     max-height: 90vh;
     overflow-y: auto;
     position: relative;
@@ -621,11 +623,15 @@ body {
     font-family: inherit;
     font-size: 1em;
 }
-.form-field a {
+.form-field .instruction-link {
     font-size: 0.8em;
     color: var(--primary-color);
     text-decoration: none;
     margin-top: 6px;
+    cursor: pointer;
+}
+.form-field .instruction-link:hover {
+    text-decoration: underline;
 }
 .modal-actions {
     display: flex;
@@ -642,6 +648,33 @@ body {
     margin-top: 16px;
 }
 
+/* Instruction Modal Specifics */
+.instructions-content {
+    margin-bottom: 24px;
+}
+.instructions-content:last-child {
+    margin-bottom: 0;
+}
+.instructions-content h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 1.1em;
+}
+.instructions-content ol {
+    padding-left: 20px;
+    margin: 0;
+    line-height: 1.6;
+}
+.instructions-content li {
+    margin-bottom: 10px;
+}
+.instructions-content code {
+    background-color: var(--light-gray-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+}
 
 /* --- Mobile & Responsive Design --- */
 .mobile-tab-bar {
@@ -680,5 +713,8 @@ body {
   }
   .mobile-tab-bar {
     display: flex;
+  }
+  .modal-content {
+      max-width: 95%;
   }
 }

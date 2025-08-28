@@ -128,14 +128,18 @@
           </div>
           
           <h4 style="margin-top: 24px;">Ключи API</h4>
+           <div class="form-field">
+            <label for="settings-google-client-id">Google Client ID</label>
+            <input type="text" id="settings-google-client-id" placeholder="Вставьте ваш Google Client ID">
+            <a href="#" id="show-client-id-instructions" class="instruction-link">Как получить Client ID?</a>
+          </div>
           <div class="form-field">
             <label for="settings-gemini-api-key">Gemini API Key</label>
             <input type="password" id="settings-gemini-api-key" placeholder="Вставьте ваш Gemini API Key">
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Получить Gemini API Key</a>
+             <a href="#" id="show-api-key-instructions" class="instruction-link">Как получить API Key?</a>
           </div>
           
-          <p class="settings-note">Для работы интеграции с Google необходимо указать ваш Client ID в файле <code>index.js</code>.</p>
-
+          <p class="settings-note">Ваши ключи API хранятся локально в вашем браузере и никуда не передаются.</p>
 
           <div class="modal-actions">
             <button id="reset-app-button" class="action-button danger">Сбросить и начать заново</button>
@@ -144,9 +148,43 @@
       </div>
   </div>
 
+  <div id="instructions-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="instructions-title" style="display:none;">
+    <div class="modal-content">
+        <button id="close-instructions-button" class="icon-button close-modal-button" aria-label="Закрыть инструкции">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+        <h2 id="instructions-title">Получение ключей API</h2>
+        
+        <div id="client-id-instructions-content" class="instructions-content">
+          <h3>Google Client ID (для Календаря и Задач)</h3>
+          <ol>
+              <li>Перейдите в <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a> и выберите или создайте проект.</li>
+              <li>Убедитесь, что для вашего проекта включены <strong>Google Calendar API</strong> и <strong>Google Tasks API</strong>. Вы можете включить их в разделе <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noopener noreferrer">Библиотека API</a>.</li>
+              <li>Перейдите в раздел "Учетные данные", нажмите "Создать учетные данные" и выберите "Идентификатор клиента OAuth".</li>
+              <li>В качестве типа приложения выберите "Веб-приложение".</li>
+              <li>В разделе <strong>"Разрешенные источники JavaScript"</strong> добавьте URL, на котором вы размещаете приложение. Для GitHub Pages это будет: <code>https://&lt;ВАШ-НИК&gt;.github.io</code></li>
+              <li>В разделе <strong>"Разрешенные URI перенаправления"</strong> добавьте тот же URL с путем к вашему репозиторию: <code>https://&lt;ВАШ-НИК&gt;.github.io/&lt;НАЗВАНИЕ-РЕПОЗИТОРИЯ&gt;/</code></li>
+              <li>Нажмите "Создать" и скопируйте полученный "Идентификатор клиента".</li>
+          </ol>
+        </div>
+        
+        <div id="api-key-instructions-content" class="instructions-content">
+          <h3>Gemini API Key (для Ассистента)</h3>
+          <ol>
+              <li>Перейдите в <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.</li>
+              <li>Войдите в свой аккаунт Google.</li>
+              <li>Нажмите "Create API key" (Создать ключ API).</li>
+              <li>Выберите существующий проект или создайте новый.</li>
+              <li>Скопируйте сгенерированный ключ API.</li>
+          </ol>
+        </div>
+
+    </div>
+  </div>
+
   <script>
-    function onGapiLoad() { window.gapiLoadedCallback && window.gapiLoadedCallback(); }
-    function onGisLoad() { window.gisInalidCallback && window.gisInalidCallback(); }
+    function onGapiLoad() { window.gapiLoaded = true; window.gapiLoadCallback?.(); }
+    function onGisLoad() { window.gisLoaded = true; window.gisLoadCallback?.(); }
   </script>
   <script async defer src="https://apis.google.com/js/api.js" onload="onGapiLoad()"></script>
   <script async defer src="https://accounts.google.com/gsi/client" onload="onGisLoad()"></script>
